@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatVault</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            <rect x="9" y="8" width="6" height="5" rx="1"/>
+            <circle cx="12" cy="10.5" r="1" fill="currentColor"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">ChatVault</h1>
+          <p class="brand-subtitle">Google Chat Exporter</p>
+        </div>
+      </div>
+      <span class="speed-pill" id="speed-badge">v1.2</span>
+    </header>
+
+    <!-- Google Chat Detection Notice (Shown if tab is NOT Google Chat) -->
+    <div id="wrong-tab-view" class="card warning-card hidden">
+      <div class="card-icon warning-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </div>
+      <div class="card-content">
+        <h3 class="card-title">Google Chat Not Detected</h3>
+        <p class="card-desc">Please switch to an active Google Chat or Gmail tab to export conversations.</p>
+        <button id="open-chat-btn" class="btn btn-secondary btn-sm mt-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+          Open Google Chat
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Extension Body (Shown when on Google Chat) -->
+    <div id="main-content" class="main-flow">
+      <!-- Scope Selector Tabs -->
+      <div class="scope-tabs">
+        <button class="scope-tab active" id="tab-scope-single" type="button">Current Chat</button>
+        <button class="scope-tab" id="tab-scope-batch" type="button">Batch Export</button>
+      </div>
+
+      <!-- Scope View 1: Active Single Conversation -->
+      <div id="single-chat-view" class="card active-tab-card">
+        <div class="chat-status-row">
+          <div class="pulse-indicator-wrapper">
+            <span class="status-dot"></span>
+            <span class="status-dot-ping"></span>
+          </div>
+          <span class="status-badge" id="tab-status-text">Active Chat Connected</span>
+        </div>
+        <div class="conversation-info">
+          <div class="conversation-label">Target Conversation:</div>
+          <div class="conversation-name" id="conversation-name" title="Current chat">Scanning chat...</div>
+          <div class="conversation-meta" id="conversation-meta">Ready to export</div>
+        </div>
+      </div>
+
+      <!-- Scope View 2: Batch Conversation Discovery & Selection -->
+      <div id="batch-chat-view" class="card batch-card hidden">
+        <div class="batch-header">
+          <div class="batch-title-row">
+            <h3 class="section-title">Accessible Conversations</h3>
+            <button id="refresh-convos-btn" class="btn btn-secondary btn-xs" type="button" title="Rescan sidebar">
+              🔄 Scan
+            </button>
+          </div>
+          <p class="card-desc">Select conversations from your sidebar to export sequentially:</p>
+        </div>
+
+        <div class="batch-search-bar">
+          <input type="text" id="batch-search-input" class="input-xs" placeholder="Filter conversations..." />
+          <div class="batch-selection-actions">
+            <button id="select-all-btn" class="link-btn" type="button">Select All</button>
+            <span class="divider">&bull;</span>
+            <button id="deselect-all-btn" class="link-btn" type="button">Clear</button>
+          </div>
+        </div>
+
+        <!-- Scrollable Conversation Checklist -->
+        <div class="conversation-list" id="conversation-list">
+          <div class="empty-list-placeholder">Click "Scan" to discover accessible chats &amp; spaces...</div>
+        </div>
+        <div class="batch-footer-info" id="batch-selection-count">0 of 0 selected</div>
+      </div>
+
+      <!-- Export Format Selector -->
+      <div class="card format-card">
+        <h2 class="section-title">Export Format</h2>
+        <div class="format-grid">
+          <label class="format-option active" id="format-html-label">
+            <input type="radio" name="export-format" value="html" id="format-html" checked>
+            <div class="format-icon">📄</div>
+            <div class="format-title">HTML</div>
+            <div class="format-desc">Native Chat UI</div>
+          </label>
+
+          <label class="format-option" id="format-pdf-label">
+            <input type="radio" name="export-format" value="pdf" id="format-pdf">
+            <div class="format-icon">📑</div>
+            <div class="format-title">PDF</div>
+            <div class="format-desc">Print-Ready Document</div>
+          </label>
+
+          <label class="format-option" id="format-both-label">
+            <input type="radio" name="export-format" value="both" id="format-both">
+            <div class="format-icon">📦</div>
+            <div class="format-title">Both (ZIP)</div>
+            <div class="format-desc">HTML + PDF + Data</div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Options Card -->
+      <div class="card options-card">
+        <h2 class="section-title">Options</h2>
+
+        <!-- Auto-scroll Top to Bottom Toggle -->
+        <label class="toggle-option" for="auto-scroll-toggle">
+          <div class="option-info">
+            <span class="option-title">Auto-scroll top to bottom</span>
+            <span class="option-desc" id="scroll-desc">Loads complete history by sweeping top-to-bottom.</span>
+          </div>
+          <div class="switch">
+            <input type="checkbox" id="auto-scroll-toggle">
+            <span class="slider"></span>
+          </div>
+        </label>
+
+        <!-- Media Scraping Toggle -->
+        <label class="toggle-option" for="download-images-toggle">
+          <div class="option-info">
+            <span class="option-title">Include shared media</span>
+            <span class="option-desc" id="images-desc">Embeds full-resolution screenshots and photos.</span>
+          </div>
+          <div class="switch">
+            <input type="checkbox" id="download-images-toggle" checked>
+            <span class="slider"></span>
+          </div>
+        </label>
+      </div>
+
+      <!-- Real-time Progress Card (Displayed while exporting) -->
+      <div id="progress-card" class="card progress-card hidden">
+        <div class="progress-target" id="progress-target-text">Exporting: Active Chat</div>
+        <div class="progress-header">
+          <span class="progress-phase" id="progress-phase-text">Scanning messages...</span>
+          <span class="progress-percent" id="progress-percent-text">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%"></div>
+        </div>
+        <p class="progress-details" id="progress-detail-text">Preparing extraction engine...</p>
+
+        <!-- 4-Metric Grid: Discovered, Processed, Skipped, Failed -->
+        <div class="live-metrics-grid">
+          <div class="metric-cell">
+            <span class="metric-label">Discovered</span>
+            <span class="metric-value text-blue" id="metric-discovered">0</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Processed</span>
+            <span class="metric-value text-green" id="metric-processed">0</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Skipped</span>
+            <span class="metric-value text-amber" id="metric-skipped">0</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Failed</span>
+            <span class="metric-value text-red" id="metric-failed">0</span>
+          </div>
+        </div>
+        <div class="timer-row">
+          <span>Elapsed Time: <strong id="metric-time">00:00</strong></span>
+        </div>
+      </div>
+
+      <!-- Success Result Card -->
+      <div id="success-card" class="card success-card hidden">
+        <div class="success-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </div>
+        <div class="success-content">
+          <h3 class="success-title" id="success-headline">Export Complete!</h3>
+          <p class="success-desc" id="success-filename">Chat_Export.html</p>
+          <div class="summary-stats-box" id="success-stats-box">
+            <!-- Populated dynamically with accurate counts -->
+          </div>
+          <div class="bundle-contents" id="success-bundle-pills">
+            <span class="bundle-pill">Complete</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error Alert Card -->
+      <div id="error-card" class="card error-card hidden">
+        <div class="error-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="15" y1="9" x2="9" y2="15"/>
+            <line x1="9" y1="9" x2="15" y2="15"/>
+          </svg>
+        </div>
+        <div class="error-content">
+          <h4 class="error-title">Export Notice</h4>
+          <p class="error-msg" id="error-message">An error occurred during extraction.</p>
+          <button id="diagnose-btn" class="btn btn-secondary btn-sm mt-2" type="button" title="Run diagnostics to inspect DOM structure (output in DevTools console)">🔍 Run Diagnostics</button>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="action-container">
+        <button id="export-btn" class="btn btn-primary btn-block">
+          <span class="btn-spinner hidden" id="btn-spinner"></span>
+          <svg id="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span id="btn-text">⚡ Save as HTML</span>
+        </button>
+
+        <button id="cancel-btn" class="btn btn-danger btn-block hidden mt-2" type="button">
+          🛑 Cancel Export
+        </button>
+
+        <button id="reset-btn" class="btn btn-ghost btn-block hidden mt-2" type="button">
+          Export Another
+        </button>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="privacy-note">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <span>100% Client-Side &bull; Native Google Chat Styling</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
