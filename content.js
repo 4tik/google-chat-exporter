@@ -103,7 +103,7 @@
   async function executeExportPipeline(options) {
     const {
       scope = 'single',
-      format = 'html',
+      format = 'pdf',
       batchIds = []
     } = options;
 
@@ -128,7 +128,7 @@
 
   async function executeSingleExport(options) {
     const {
-      format = 'html',
+      format = 'pdf',
       autoScroll = false,
       downloadImages = true,
       maxScrollAttempts = 20
@@ -410,7 +410,7 @@
 
   async function executeBatchExport(options) {
     const {
-      format = 'html',
+      format = 'pdf',
       batchIds = [],
       autoScroll = false,
       downloadImages = true,
@@ -887,8 +887,16 @@
   function cleanSenderString(str) {
     if (!str) return '';
     return str
+      .replace(/^message\s+/i, '')
+      .replace(/^send a message to\s+/i, '')
+      .replace(/^send message to\s+/i, '')
+      .replace(/^direct message with\s+/i, '')
+      .replace(/^view\s+/i, '')
+      .replace(/^profile photo of\s+/i, '')
+      .replace(/'s profile$/i, '')
       .replace(/[•·]\s*Edited.*/i, '')
       .replace(/\b(Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun)?[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i, '')
+      .replace(/^[\"'(\[]+|[\"')\]]+$/g, '')
       .trim();
   }
 
@@ -899,8 +907,15 @@
     if (/^\d{1,2}:\d{2}/.test(text)) return false;
     if (/\b(AM|PM)\b/i.test(text) && /\d/.test(text)) return false;
     // Exclude UI action labels & system tokens
-    const rejectWords = ['replies', 'reply', 'unread', 'reaction', 'quote', 'forward', 'edit', 'delete', 'options', 'history is on', 'add reaction'];
-    if (rejectWords.some(w => text.toLowerCase().includes(w))) return false;
+    const lower = text.toLowerCase();
+    const rejectWords = [
+      'replies', 'reply', 'unread', 'reaction', 'quote', 'forward',
+      'edit', 'delete', 'options', 'history is on', 'history is off',
+      'space update', 'added to space', 'joined the space', 'left the space',
+      'add reaction', 'more options'
+    ];
+    if (rejectWords.some(w => lower.includes(w))) return false;
+    if (/^(message|send message)$/i.test(text.trim())) return false;
     return true;
   }
 
@@ -1641,28 +1656,62 @@
       return false;
     }
 
-    // Google Green accent bar
+    // ─── Header Section ──────────────────────────────────────────────
+    // 1. Google Green accent bar
     doc.setFillColor(0, 131, 45);
-    doc.rect(margin, currentY, contentWidth, 2.5, 'F');
-    currentY += 7;
+    doc.roundedRect(margin, currentY, contentWidth, 3, 1, 1, 'F');
+    currentY += 7.5;
 
+    // 2. Conversation Title (Cleaned & wrapped within margins)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(15);
+    doc.setFontSize(16);
     doc.setTextColor(31, 31, 31);
-    doc.text(title || 'Google Chat Archive', margin, currentY);
-    currentY += 5.5;
+    const cleanTitleText = (title || 'Google Chat Archive').replace(/\s*-\s*Chat$/i, '').trim();
+    const titleLines = doc.splitTextToSize(cleanTitleText, contentWidth);
+    doc.text(titleLines, margin, currentY);
+    currentY += titleLines.length * 6.5 + 1.5;
 
+    // 3. Metadata Badges Row (Exported date, message count, media count)
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
-    doc.setTextColor(116, 119, 117);
-    const participants = [...new Set(messages.map(m => m.sender).filter(Boolean))];
-    doc.text(`Exported ${exportDate} · ${messages.length} messages · ${totalImages} media files · Participants: ${participants.slice(0, 5).join(', ')}`, margin, currentY);
-    currentY += 5.5;
+    doc.setTextColor(95, 99, 104);
+    const metaBadges = [
+      `📅 Exported: ${exportDate}`,
+      `💬 ${messages.length} message${messages.length === 1 ? '' : 's'}`,
+      totalImages > 0 ? `📎 ${totalImages} media file${totalImages === 1 ? '' : 's'}` : null
+    ].filter(Boolean);
+    doc.text(metaBadges.join('   •   '), margin, currentY);
+    currentY += 5;
 
-    doc.setDrawColor(224, 227, 231);
-    doc.setLineWidth(0.3);
+    // 4. Participants (Cleaned, unique names, strictly wrapped inside page boundaries)
+    const rawParticipants = [...new Set(messages.map(m => m.sender).filter(Boolean))];
+    const cleanParticipants = rawParticipants
+      .map(p => cleanSenderString(p))
+      .filter(p => p && p !== '—' && p !== '-' && p.toLowerCase() !== 'system' && isValidSenderString(p));
+
+    if (cleanParticipants.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(60, 64, 67);
+      
+      const partPrefix = `👥 Participants (${cleanParticipants.length}): `;
+      const namesString = cleanParticipants.join(', ');
+      
+      // Calculate wrapped text to guarantee it stays inside contentWidth
+      const participantLines = doc.splitTextToSize(`${partPrefix}${namesString}`, contentWidth);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(95, 99, 104);
+      doc.text(participantLines, margin, currentY);
+      currentY += participantLines.length * 4.2 + 2;
+    } else {
+      currentY += 1.5;
+    }
+
+    // 5. Divider line below header
+    doc.setDrawColor(218, 220, 224);
+    doc.setLineWidth(0.4);
     doc.line(margin, currentY, margin + contentWidth, currentY);
-    currentY += 7;
+    currentY += 7.5;
 
     let lastDate = '';
 
@@ -1685,10 +1734,35 @@
         currentY += 8;
       }
 
+      // Check for System Updates (e.g. Space update, history toggled, membership changes)
+      const isSystem = !msg.sender || msg.sender === '—' || msg.sender === '-' ||
+                       msg.isSystem ||
+                       (msg.text && (msg.text.startsWith('Space update:') || msg.text.startsWith('History is ')));
+
+      if (isSystem) {
+        checkPageOverflow(12);
+        const sysText = (msg.text || '').trim();
+        if (sysText) {
+          doc.setFillColor(245, 247, 250);
+          const cleanSys = sysText.replace(/\n+/g, '  ·  ');
+          const sysLines = doc.splitTextToSize(cleanSys, contentWidth - 20);
+          const boxH = Math.max(6.5, sysLines.length * 4 + 3.5);
+          doc.roundedRect(margin + 5, currentY - 2.5, contentWidth - 10, boxH, 1.5, 1.5, 'F');
+
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(8);
+          doc.setTextColor(110, 114, 120);
+          doc.text(sysLines, margin + 10, currentY + 1.5);
+          currentY += boxH + 3.5;
+        }
+        continue;
+      }
+
       // Sender Avatar circle
       checkPageOverflow(14);
       const avatarSize = 7.5;
-      const rgb = hexToRgb(getAvatarColor(msg.sender));
+      const cleanSender = cleanSenderString(msg.sender) || 'Participant';
+      const rgb = hexToRgb(getAvatarColor(cleanSender));
       doc.setFillColor(rgb.r, rgb.g, rgb.b);
       doc.circle(margin + avatarSize / 2, currentY + avatarSize / 2, avatarSize / 2, 'F');
 
@@ -1696,21 +1770,27 @@
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(255, 255, 255);
-      const initial = getInitials(msg.sender).slice(0, 1);
+      const initial = getInitials(cleanSender).slice(0, 1);
       const initW = doc.getTextWidth(initial);
       doc.text(initial, margin + (avatarSize - initW) / 2, currentY + avatarSize / 2 + 2.6);
 
-      // Sender Name & Timestamp
+      // Sender Name (left-aligned)
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9.5);
       doc.setTextColor(31, 31, 31);
-      const senderText = msg.sender || '—';
-      doc.text(senderText, margin + 10.5, currentY + 3.8);
+      const maxSenderW = contentWidth - 55;
+      const displaySender = doc.getTextWidth(cleanSender) > maxSenderW
+        ? cleanSender.slice(0, 32) + '…'
+        : cleanSender;
+      doc.text(displaySender, margin + 10.5, currentY + 3.8);
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(116, 119, 117);
-      doc.text(`   ${msg.timestamp}`, margin + 10.5 + doc.getTextWidth(senderText), currentY + 3.8);
+      // Timestamp (neatly right-aligned)
+      if (msg.timestamp) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(128, 134, 139);
+        doc.text(msg.timestamp, margin + contentWidth, currentY + 3.8, { align: 'right' });
+      }
       currentY += 8.5;
 
       const bubbleMargin = margin + 10.5;

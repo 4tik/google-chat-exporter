@@ -1,37 +1,31 @@
-# ChatVault &mdash; Google Chat Exporter & Archiver
+# ChatVault &mdash; Google Chat PDF Exporter
 
-**ChatVault** is a production-grade, 100% client-side Chromium browser extension (Manifest V3) designed to export, backup, and archive conversations from Google Chat (`chat.google.com` and `mail.google.com`).
+**ChatVault** is a fast, 100% client-side Chromium browser extension (Manifest V3) designed to export the **current active conversation** in Google Chat (`chat.google.com` or `mail.google.com`) directly into a clean, print-ready vector **PDF document**.
 
-It extracts full conversation threads, exact timestamps, senders, quoted replies, emoji reactions, in-line thread summaries, and full-resolution shared screenshots/media into standalone **HTML**, print-ready **PDF**, or a complete **ZIP** bundle.
+It extracts complete conversation threads, exact timestamps, senders, quoted replies, emoji reactions, in-line thread summaries, and embeds full-resolution shared screenshots and media cleanly within PDF page boundaries.
 
 ---
 
-## 🌟 Key Capabilities
+## 🌟 Key Features
 
-1. **Native Google Chat Replica (Standalone HTML)**:
-   - Self-contained, responsive chat reader styled exactly like Google Chat.
-   - Preserves message cards, profile avatars, bold sender names, and exact timestamps.
-   - Renders **in-line thread reply bars** (e.g. `6 unread 6 replies Tue 5:38 PM`) right below message cards.
-   - Highlights `@mentions`, code blocks, bold/italic text, and clickable links.
-   - Offline Base64 embedded full-resolution screenshots and media attachments.
-   - Built-in **real-time search bar** to filter conversation messages instantly.
-   - Click-to-enlarge **interactive image lightbox** modal.
-   - Dark / Light theme toggle.
+1. **Focused Current Chat Export**:
+   - Automatically detects and binds to your active Google Chat Direct Message, Group Chat, or Space.
+   - Shows active status, conversation title, and loaded message count in real time.
 
-2. **Professional Vector PDF Export**:
-   - Generates an A4 print-ready multi-page document using **jsPDF**.
-   - Includes Google Chat green header bar, export metadata, participant list, word-wrapped message bodies, scaled images, and automatic page numbers (`Page X of Y`).
+2. **Professional Vector PDF**:
+   - Generates an A4 print-ready multi-page document powered by **jsPDF**.
+   - Includes Google Chat green accent header bar, export metadata, participant list, word-wrapped message bodies, scaled embedded images, and automatic page numbers (`Page X of Y`).
 
-3. **Complete Master Bundle (Both / ZIP)**:
-   - Bundles Native HTML + Vector PDF + CSV spreadsheet (`chat_history.csv`) + JSON developer dump (`chat_data.json`) + `images/` directory.
+3. **Smart History Sweeping (Auto-scroll)**:
+   - Sweeps from top to bottom to hydrate virtualized DOM messages and lazy-loaded screenshots.
+   - Option to disable auto-scroll for sub-second exports of the currently loaded chat view.
 
-4. **Multi-Conversation Batch Export**:
-   - Automatically discovers accessible Direct Messages and Spaces from your sidebar navigation.
-   - Filter, select all, or choose specific conversations to archive sequentially into a master ZIP.
+4. **Media Embedding**:
+   - Embeds shared photos and screenshots scaled cleanly within PDF page bounds.
 
-5. **Fast & Adaptive Two-Phase Auto-Scroll**:
-   - Sweeps from top to bottom at high speed to hydrate virtualized DOM message elements and lazy-loaded screenshots.
-   - Option to disable auto-scroll for sub-second instant exports of the currently visible screen.
+5. **Real-Time Progress & Metrics**:
+   - Live 4-metric tracker (`Discovered`, `Processed`, `Skipped`, `Failed`) with live elapsed timer.
+   - One-click safe export cancellation.
 
 ---
 
@@ -39,8 +33,8 @@ It extracts full conversation threads, exact timestamps, senders, quoted replies
 
 ### Step 1: Verify Dependencies
 ChatVault bundles its client-side libraries locally:
-- `jszip.min.js` (for ZIP archiving)
 - `jspdf.umd.min.js` (for client-side vector PDF generation)
+- `jszip.min.js`
 
 Both files are already present in your `google-chat-exporter/` directory.
 
@@ -61,20 +55,17 @@ Both files are already present in your `google-chat-exporter/` directory.
 
 ---
 
-## 💡 How to Export a Google Chat Conversation
+## 💡 How to Export Current Chat to PDF
 
 1. Go to [Google Chat](https://chat.google.com) or [Gmail](https://mail.google.com).
 2. Open the **Direct Message**, **Group Chat**, or **Space** you wish to export.
 3. Click the **ChatVault** extension icon in your browser toolbar.
-4. Choose your format:
-   - **HTML**: Self-contained offline viewer matching Google Chat's exact design with embedded screenshots.
-   - **PDF**: Multi-page printable vector PDF.
-   - **Both (ZIP)**: Full package (HTML + PDF + CSV + JSON + raw images).
+4. The extension automatically detects the active conversation.
 5. Customize options:
-   - **Auto-scroll top to bottom**: Sweeps through history to render older messages and hydrate lazy-loaded screenshots.
-   - **Include shared media**: Embeds full-resolution screenshots and attachments.
-6. Click **"Save as HTML"** (or PDF / ZIP).
-7. Watch the live 4-metric progress tracker (`Discovered`, `Processed`, `Skipped`, `Failed`). Your browser will immediately download the finished archive!
+   - **Auto-scroll top to bottom**: Sweeps through history to render older messages and lazy-loaded screenshots.
+   - **Include shared media**: Embeds full-resolution screenshots directly into the PDF.
+6. Click **"⚡ Export Chat as PDF"**.
+7. Watch the live progress tracker. Your browser will automatically download the print-ready `.pdf` document!
 
 ---
 
@@ -90,14 +81,14 @@ Both files are already present in your `google-chat-exporter/` directory.
 
 ```
 google-chat-exporter/
-├── manifest.json            # Manifest V3 configuration with host permissions
-├── popup.html               # Modern popup interface with single & batch tabs
-├── popup.css                # Tailwind-inspired modern responsive styles
+├── manifest.json            # Manifest V3 configuration
+├── popup.html               # Clean popup interface focused on Current Chat PDF export
+├── popup.css                # Modern responsive styling
 ├── popup.js                 # Popup controller with live 4-metric progress tracking
-├── content.js               # Isolated content extraction engine & HTML/PDF generators
-├── jszip.min.js             # JSZip 3.10.1 library
+├── content.js               # Isolated content extraction & PDF generation engine
 ├── jspdf.umd.min.js         # jsPDF 2.5.1 library
+├── jszip.min.js             # JSZip library
 ├── icons/                   # Chrome extension PNG icons (16, 32, 48, 128)
-├── HOW_TO_INSTALL_AND_USE.md# Step-by-step installation guide
+├── HOW_TO_INSTALL_AND_USE.md# Step-by-step user guide
 └── README.md                # Project documentation
 ```

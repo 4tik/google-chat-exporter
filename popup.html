@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ChatVault</title>
+  <title>ChatVault - Google Chat PDF Exporter</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -20,10 +20,10 @@
         </div>
         <div class="brand-text">
           <h1 class="brand-title">ChatVault</h1>
-          <p class="brand-subtitle">Google Chat Exporter</p>
+          <p class="brand-subtitle">Google Chat PDF Exporter</p>
         </div>
       </div>
-      <span class="speed-pill" id="speed-badge">v1.2</span>
+      <span class="speed-pill" id="speed-badge">📑 PDF Export</span>
     </header>
 
     <!-- Google Chat Detection Notice (Shown if tab is NOT Google Chat) -->
@@ -51,13 +51,7 @@
 
     <!-- Main Extension Body (Shown when on Google Chat) -->
     <div id="main-content" class="main-flow">
-      <!-- Scope Selector Tabs -->
-      <div class="scope-tabs">
-        <button class="scope-tab active" id="tab-scope-single" type="button">Current Chat</button>
-        <button class="scope-tab" id="tab-scope-batch" type="button">Batch Export</button>
-      </div>
-
-      <!-- Scope View 1: Active Single Conversation -->
+      <!-- Active Single Conversation (Current Chat) -->
       <div id="single-chat-view" class="card active-tab-card">
         <div class="chat-status-row">
           <div class="pulse-indicator-wrapper">
@@ -73,58 +67,14 @@
         </div>
       </div>
 
-      <!-- Scope View 2: Batch Conversation Discovery & Selection -->
-      <div id="batch-chat-view" class="card batch-card hidden">
-        <div class="batch-header">
-          <div class="batch-title-row">
-            <h3 class="section-title">Accessible Conversations</h3>
-            <button id="refresh-convos-btn" class="btn btn-secondary btn-xs" type="button" title="Rescan sidebar">
-              🔄 Scan
-            </button>
+      <!-- Format Notice (PDF Only) -->
+      <div class="card format-card-simple">
+        <div class="format-badge-row">
+          <div class="format-icon-badge">📑</div>
+          <div class="format-badge-info">
+            <div class="format-badge-title">Export Format: Vector PDF</div>
+            <div class="format-badge-desc">Print-ready multi-page document with full message history &amp; media</div>
           </div>
-          <p class="card-desc">Select conversations from your sidebar to export sequentially:</p>
-        </div>
-
-        <div class="batch-search-bar">
-          <input type="text" id="batch-search-input" class="input-xs" placeholder="Filter conversations..." />
-          <div class="batch-selection-actions">
-            <button id="select-all-btn" class="link-btn" type="button">Select All</button>
-            <span class="divider">&bull;</span>
-            <button id="deselect-all-btn" class="link-btn" type="button">Clear</button>
-          </div>
-        </div>
-
-        <!-- Scrollable Conversation Checklist -->
-        <div class="conversation-list" id="conversation-list">
-          <div class="empty-list-placeholder">Click "Scan" to discover accessible chats &amp; spaces...</div>
-        </div>
-        <div class="batch-footer-info" id="batch-selection-count">0 of 0 selected</div>
-      </div>
-
-      <!-- Export Format Selector -->
-      <div class="card format-card">
-        <h2 class="section-title">Export Format</h2>
-        <div class="format-grid">
-          <label class="format-option active" id="format-html-label">
-            <input type="radio" name="export-format" value="html" id="format-html" checked>
-            <div class="format-icon">📄</div>
-            <div class="format-title">HTML</div>
-            <div class="format-desc">Native Chat UI</div>
-          </label>
-
-          <label class="format-option" id="format-pdf-label">
-            <input type="radio" name="export-format" value="pdf" id="format-pdf">
-            <div class="format-icon">📑</div>
-            <div class="format-title">PDF</div>
-            <div class="format-desc">Print-Ready Document</div>
-          </label>
-
-          <label class="format-option" id="format-both-label">
-            <input type="radio" name="export-format" value="both" id="format-both">
-            <div class="format-icon">📦</div>
-            <div class="format-title">Both (ZIP)</div>
-            <div class="format-desc">HTML + PDF + Data</div>
-          </label>
         </div>
       </div>
 
@@ -148,7 +98,7 @@
         <label class="toggle-option" for="download-images-toggle">
           <div class="option-info">
             <span class="option-title">Include shared media</span>
-            <span class="option-desc" id="images-desc">Embeds full-resolution screenshots and photos.</span>
+            <span class="option-desc" id="images-desc">Embeds images scaled cleanly within PDF page boundaries.</span>
           </div>
           <div class="switch">
             <input type="checkbox" id="download-images-toggle" checked>
@@ -202,12 +152,13 @@
         </div>
         <div class="success-content">
           <h3 class="success-title" id="success-headline">Export Complete!</h3>
-          <p class="success-desc" id="success-filename">Chat_Export.html</p>
+          <p class="success-desc" id="success-filename">Chat_Export.pdf</p>
           <div class="summary-stats-box" id="success-stats-box">
             <!-- Populated dynamically with accurate counts -->
           </div>
           <div class="bundle-contents" id="success-bundle-pills">
-            <span class="bundle-pill">Complete</span>
+            <span class="bundle-pill">PDF Document</span>
+            <span class="bundle-pill">Print-Ready</span>
           </div>
         </div>
       </div>
@@ -237,7 +188,7 @@
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          <span id="btn-text">⚡ Save as HTML</span>
+          <span id="btn-text">⚡ Export Chat as PDF</span>
         </button>
 
         <button id="cancel-btn" class="btn btn-danger btn-block hidden mt-2" type="button">
@@ -257,7 +208,7 @@
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
           <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
         </svg>
-        <span>100% Client-Side &bull; Native Google Chat Styling</span>
+        <span>100% Client-Side &bull; Native PDF Generation</span>
       </div>
     </footer>
   </div>
