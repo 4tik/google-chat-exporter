@@ -128,6 +128,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Initialization error:', err);
   }
 
+  function formatConversationType(type) {
+    if (!type) return 'Direct Message';
+    const t = String(type).toUpperCase();
+    if (t === 'DIRECT_MESSAGE' || t.includes('DIRECT')) return 'Direct Message';
+    if (t === 'GROUP_CHAT' || t.includes('GROUP')) return 'Group Chat';
+    if (t === 'SPACE') return 'Space';
+    return type;
+  }
+
   // Scan Active Conversation Info
   function scanConversationInfo() {
     if (!activeTab?.id) return;
@@ -140,7 +149,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       conversationNameEl.textContent = response.name || 'Google Chat Conversation';
-      conversationTypeBadge.textContent = response.type || 'Space';
+      conversationTypeBadge.textContent = formatConversationType(response.type);
       exportStatusBadge.textContent = 'Ready to export';
 
       if (metricDiscoveredMessages) metricDiscoveredMessages.textContent = response.totalMessages || 0;

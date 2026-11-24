@@ -76,22 +76,42 @@ export class ChatDetector {
     const href = this._loc.href || '';
 
     // URL path heuristics
-    if (href.includes('/room/') || href.includes('/space/') || href.includes('/r/')) {
-      return ConversationType.SPACE;
-    }
     if (href.includes('/dm/') || href.includes('/direct/')) {
       return ConversationType.DIRECT_MESSAGE;
+    }
+    if (href.includes('/room/') || href.includes('/space/')) {
+      return ConversationType.SPACE;
     }
 
     // DOM heuristics
     if (this._doc) {
-      // Space header indicators
-      const spaceBadge = this._doc.querySelector('[aria-label*="Space"], [data-is-space="true"], [data-space-id]');
-      if (spaceBadge) return ConversationType.SPACE;
+      const mainEl = this._doc.querySelector('[role="main"]') || this._doc.body;
+      const mainText = mainEl ? (mainEl.innerText || mainEl.textContent || '') : '';
 
-      // Check title or header icons
-      const headerIcon = this._doc.querySelector('header [aria-label*="Space"], [role="main"] header [data-tooltip*="Space"]');
-      if (headerIcon) return ConversationType.SPACE;
+      // Direct Message heuristics: email in header or welcome text
+      if (
+        mainText.includes('You created this chat on') ||
+        /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/.test(mainText.slice(0, 800))
+      ) {
+        return ConversationType.DIRECT_MESSAGE;
+      }
+
+      // Check sidebar section of the active conversation link
+      const pathParts = (this._loc.pathname || '').split('/').filter(Boolean);
+      const convoId = pathParts[pathParts.length - 1];
+      if (convoId && convoId.length >= 4) {
+        const activeLink = this._doc.querySelector(`a[href*="${convoId}"], [data-id*="${convoId}"]`);
+        if (activeLink) {
+          const dmSection = activeLink.closest('[aria-label*="Direct messages" i], [data-section*="dm" i]');
+          if (dmSection) return ConversationType.DIRECT_MESSAGE;
+          const spaceSection = activeLink.closest('[aria-label*="Spaces" i], [data-section*="spaces" i]');
+          if (spaceSection) return ConversationType.SPACE;
+        }
+      }
+
+      // Space header indicators
+      const spaceBadge = this._doc.querySelector('[aria-label*="Space" i], [data-is-space="true"], [data-space-id]');
+      if (spaceBadge) return ConversationType.SPACE;
 
       // Group chat indicator: headers showing multiple participants or "members"
       const memberCountEl = this._doc.querySelector('[aria-label*="member"], [aria-label*="participant"]');
@@ -150,43 +170,95 @@ export class ChatDetector {
   detectConversationName() {
     if (!this._doc) return 'Google Chat Conversation';
 
-    // 1. Try dedicated conversation header elements
-    const headerSelectors = [
-      'header h1',
-      'header h2',
-      '[role="heading"][aria-level="1"]',
-      '[role="heading"][aria-level="2"]',
-      'header [data-hovercard-id]',
-      '[jsname="A4bMJe"]', // Google Chat room/DM title element
-      '.Yv3xrd',          // observed conversation title class
-      '[data-conversation-title]',
-      'header [role="button"] span[dir="auto"]'
-    ];
+    const cleanTitle = (str) => {
+      if (!str) return '';
+      return str
+        .replace(/^\(\d+\)\s*/, '')
+        .replace(/\s*[-–]\s*(?:Google\s+)?Chat.*$/i, '')
+        .replace(/\s*[-–]\s*Gmail.*$/i, '')
+        .replace(/^(?:Chat with|Space options for|Conversation options for)\s+/i, '')
+        .replace(/,\s*\d+\s+unread.*$/i, '')
+        .replace(/\s*[▼v]$/i, '')
+        .trim();
+    };
 
-    for (const sel of headerSelectors) {
-      const el = this._doc.querySelector(sel);
-      if (el && el.textContent.trim()) {
-        const title = el.textContent.trim();
-        // Ignore generic labels
-        if (!['Chat', 'Google Chat', 'Mail', 'Spaces'].includes(title)) {
-          return title;
+    const isValidName = (str) => {
+      if (!str || typeof str !== 'string') return false;
+      const s = str.trim();
+      if (s.length < 2 || s.length > 80) return false;
+      if (s.includes('\n')) return false;
+      const reject = [
+        'google chat', 'chat', 'spaces', 'search chat', 'history is on',
+        'history is off', 'active now', 'away', 'back', 'close', 'send',
+        'reply', 'share', 'options', 'main menu', 'navigation drawer',
+        'direct messages', 'ready to export', 'export incomplete',
+        'scanning conversation...', 'active google chat', 'google chat space'
+      ];
+      if (reject.includes(s.toLowerCase())) return false;
+      return true;
+    };
+
+    // 1. Try document.title
+    const docTitle = this._doc.title || '';
+    if (docTitle) {
+      const cleaned = cleanTitle(docTitle);
+      if (isValidName(cleaned)) return cleaned;
+    }
+
+    // 2. Try top bar dropdown button
+    const topBarButtons = this._doc.querySelectorAll(
+      '[role="main"] button, [role="main"] [role="button"], div[role="banner"] [role="button"], [jscontroller] [role="button"]'
+    );
+    for (const btn of topBarButtons) {
+      const aria = btn.getAttribute('aria-label') || '';
+      if (aria) {
+        const cleanedAria = cleanTitle(aria);
+        if (isValidName(cleanedAria) && !aria.toLowerCase().includes('search')) {
+          return cleanedAria;
+        }
+      }
+      const spans = btn.querySelectorAll('span[dir="auto"], div[dir="auto"]');
+      for (const sp of spans) {
+        const txt = cleanTitle(sp.innerText || sp.textContent);
+        if (isValidName(txt)) return txt;
+      }
+    }
+
+    // 3. Welcome card / heading in main stream
+    const welcomeHeadings = this._doc.querySelectorAll(
+      '[role="main"] h1, [role="main"] h2, [role="main"] [role="heading"], [role="main"] .Yv3xrd, [role="main"] [data-conversation-title]'
+    );
+    for (const h of welcomeHeadings) {
+      const txt = cleanTitle(h.innerText || h.textContent);
+      if (isValidName(txt)) return txt;
+    }
+
+    // 4. Match active conversation link in sidebar using current URL pathname
+    if (this._loc) {
+      const pathParts = (this._loc.pathname || '').split('/').filter(Boolean);
+      const convoId = pathParts[pathParts.length - 1];
+      if (convoId && convoId.length >= 4) {
+        const activeLink = this._doc.querySelector(`a[href*="${convoId}"], [data-id*="${convoId}"]`);
+        if (activeLink) {
+          const label = activeLink.getAttribute('aria-label') ||
+                        activeLink.querySelector('[dir="auto"]')?.textContent ||
+                        activeLink.innerText || '';
+          const cleaned = cleanTitle(label);
+          if (isValidName(cleaned)) return cleaned;
         }
       }
     }
 
-    // 2. Check active item in sidebar navigation
+    // 5. Active item in sidebar navigation
     const activeSidebarItem = this._doc.querySelector(
-      '[role="navigation"] [aria-selected="true"], [role="treeitem"][aria-selected="true"]'
+      '[role="navigation"] [aria-selected="true"], [role="treeitem"][aria-selected="true"], [aria-current="page"]'
     );
     if (activeSidebarItem) {
-      const label = activeSidebarItem.getAttribute('aria-label') || activeSidebarItem.textContent.trim();
-      if (label) return label.replace(/^Chat with\s+/i, '').replace(/,\s*\d+\s+unread.*$/i, '').trim();
-    }
-
-    // 3. Document title fallback
-    const docTitle = this._doc.title || '';
-    if (docTitle && !docTitle.startsWith('Google Chat') && !docTitle.startsWith('Gmail')) {
-      return docTitle.split(' - ')[0].replace(/\(\d+\)\s*/, '').trim();
+      const label = activeSidebarItem.getAttribute('aria-label') ||
+                    activeSidebarItem.querySelector('[dir="auto"]')?.textContent ||
+                    activeSidebarItem.innerText || '';
+      const cleaned = cleanTitle(label);
+      if (isValidName(cleaned)) return cleaned;
     }
 
     return 'Google Chat Conversation';

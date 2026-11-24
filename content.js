@@ -13,8 +13,8 @@
 (function () {
   'use strict';
 
-  if (window.__GCE_CONTENT_ENGINE_V4__) return;
-  window.__GCE_CONTENT_ENGINE_V4__ = true;
+  if (window.__GCE_CONTENT_ENGINE_V5__) return;
+  window.__GCE_CONTENT_ENGINE_V5__ = true;
 
   const LOG = (...args) => console.log('[Google Chat Exporter]', ...args);
   const WARN = (...args) => console.warn('[Google Chat Exporter]', ...args);
@@ -97,45 +97,186 @@
 
   // ─── Context & Metadata Detection ─────────────────────────────────────────
 
+  function cleanConversationTitle(str) {
+    if (!str) return '';
+    return str
+      .replace(/^\(\d+\)\s*/, '')
+      .replace(/\s*[-–]\s*(?:Google\s+)?Chat.*$/i, '')
+      .replace(/\s*[-–]\s*Gmail.*$/i, '')
+      .replace(/^(?:Chat with|Space options for|Conversation options for)\s+/i, '')
+      .replace(/,\s*\d+\s+unread.*$/i, '')
+      .replace(/\s*[▼v]$/i, '')
+      .trim();
+  }
+
+  function isValidConversationName(str) {
+    if (!str || typeof str !== 'string') return false;
+    const s = str.trim();
+    if (s.length < 2 || s.length > 80) return false;
+    if (s.includes('\n')) return false;
+    const reject = [
+      'google chat', 'chat', 'spaces', 'search chat', 'history is on',
+      'history is off', 'active now', 'away', 'back', 'close', 'send',
+      'reply', 'share', 'options', 'main menu', 'navigation drawer',
+      'direct messages', 'ready to export', 'export incomplete',
+      'scanning conversation...', 'active google chat', 'google chat space'
+    ];
+    if (reject.includes(s.toLowerCase())) return false;
+    return true;
+  }
+
   function detectConversationName() {
-    // 1. Try document.title (e.g. "CNS support - Google Chat" -> "CNS support")
+    // 1. Try document.title (e.g. "Md Zahidul Islam Sumon - Chat" or "CNS support - Google Chat")
     if (document.title) {
-      const cleaned = document.title
-        .replace(/^\(\d+\)\s*/, '')
-        .replace(/\s*[-–]\s*Google Chat.*$/i, '')
-        .replace(/\s*[-–]\s*Gmail.*$/i, '')
-        .trim();
-      if (cleaned && !['Google Chat', 'Chat', 'Gmail', 'Inbox', 'Mail'].includes(cleaned)) {
+      const cleaned = cleanConversationTitle(document.title);
+      if (isValidConversationName(cleaned)) {
         return cleaned;
       }
     }
 
-    // 2. Main room header element
-    const headerSelectors = [
-      'div[role="main"] h1', 'header h1', 'div[role="main"] h2',
-      '[role="heading"][aria-level="1"]', '[jsname="A4bMJe"]',
-      'header [role="button"] span[dir="auto"]',
-      '[data-conversation-title]'
-    ];
+    // 2. Look for the conversation title dropdown button in the top bar
+    const topBarButtons = document.querySelectorAll(
+      '[role="main"] button, [role="main"] [role="button"], div[role="banner"] [role="button"], [jscontroller] [role="button"]'
+    );
+    for (const btn of topBarButtons) {
+      if (isSidebarElement(btn)) continue;
+      // Check aria-label
+      const aria = btn.getAttribute('aria-label') || '';
+      if (aria) {
+        const cleanedAria = cleanConversationTitle(aria);
+        if (isValidConversationName(cleanedAria) && !aria.toLowerCase().includes('search') && !aria.toLowerCase().includes('message')) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.top < 180 && rect.height > 20) {
+            return cleanedAria;
+          }
+        }
+      }
 
-    for (const sel of headerSelectors) {
-      const el = document.querySelector(sel);
-      if (el && !isSidebarElement(el) && el.textContent.trim()) {
-        const text = el.textContent.trim();
-        if (!['Chat', 'Google Chat', 'Mail', 'Spaces'].includes(text) && text.length < 80) {
-          return text;
+      // Check inner visible text
+      const spans = btn.querySelectorAll('span[dir="auto"], div[dir="auto"]');
+      for (const sp of spans) {
+        const txt = cleanConversationTitle(sp.innerText || sp.textContent);
+        if (isValidConversationName(txt)) {
+          const rect = sp.getBoundingClientRect();
+          if (rect.top < 180 && rect.height > 14) {
+            return txt;
+          }
         }
       }
     }
 
-    return 'Google Chat Space';
+    // 3. Welcome card / contact heading in main stream (e.g. Direct message header showing name + email)
+    const welcomeHeadings = document.querySelectorAll(
+      '[role="main"] h1, [role="main"] h2, [role="main"] [role="heading"], [role="main"] .Yv3xrd, [role="main"] [data-conversation-title]'
+    );
+    for (const h of welcomeHeadings) {
+      if (isSidebarElement(h)) continue;
+      const txt = cleanConversationTitle(h.innerText || h.textContent);
+      if (isValidConversationName(txt)) {
+        return txt;
+      }
+    }
+
+    // Elements followed by an email or "You created this chat on"
+    const textNodes = document.querySelectorAll('[role="main"] div[dir="auto"], [role="main"] span[dir="auto"]');
+    for (const node of textNodes) {
+      if (isSidebarElement(node)) continue;
+      const parent = node.closest('div');
+      if (parent && (parent.textContent.includes('@') || parent.textContent.includes('You created this chat on'))) {
+        const txt = cleanConversationTitle(node.innerText || node.textContent);
+        if (isValidConversationName(txt) && !txt.includes('@') && !txt.includes('created')) {
+          return txt;
+        }
+      }
+    }
+
+    // 4. Match active conversation link in sidebar using current URL pathname
+    const currentPath = location.pathname;
+    const pathParts = currentPath.split('/').filter(Boolean);
+    const convoId = pathParts[pathParts.length - 1];
+
+    if (convoId && convoId.length >= 4) {
+      const activeLink = document.querySelector(`a[href*="${convoId}"], [data-navigation-item-id*="${convoId}"], [data-id*="${convoId}"]`);
+      if (activeLink) {
+        const label = activeLink.getAttribute('aria-label') ||
+                      activeLink.querySelector('[dir="auto"]')?.textContent ||
+                      activeLink.innerText || '';
+        const cleaned = cleanConversationTitle(label);
+        if (isValidConversationName(cleaned)) {
+          return cleaned;
+        }
+      }
+    }
+
+    // 5. Active item in sidebar navigation
+    const activeSidebarItem = document.querySelector(
+      '[role="navigation"] [aria-selected="true"], [role="treeitem"][aria-selected="true"], [aria-current="page"]'
+    );
+    if (activeSidebarItem) {
+      const label = activeSidebarItem.getAttribute('aria-label') ||
+                    activeSidebarItem.querySelector('[dir="auto"]')?.textContent ||
+                    activeSidebarItem.innerText || '';
+      const cleaned = cleanConversationTitle(label);
+      if (isValidConversationName(cleaned)) {
+        return cleaned;
+      }
+    }
+
+    // Fallback: If in a 1:1 chat and sender is discovered, use the partner's name
+    if (runningSender && isValidConversationName(runningSender) && runningSender !== 'Participant' && runningSender !== 'You') {
+      return runningSender;
+    }
+
+    return 'Google Chat Conversation';
   }
 
   function detectConversationType() {
     const href = location.href || '';
-    if (href.includes('/room/') || href.includes('/space/') || href.includes('/r/') || href.includes('/app/chat/')) return 'SPACE';
     if (href.includes('/dm/') || href.includes('/direct/')) return 'DIRECT_MESSAGE';
-    if (document.querySelector('[data-space-id], [aria-label*="Space"]')) return 'SPACE';
+    if (href.includes('/room/') || href.includes('/space/')) return 'SPACE';
+
+    // 1. Email address visible in main chat header or welcome card -> DIRECT_MESSAGE
+    const mainEl = document.querySelector('[role="main"]') || document.body;
+    const mainText = mainEl.innerText || mainEl.textContent || '';
+    if (
+      mainText.includes('You created this chat on') ||
+      /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/.test(mainText.slice(0, 800))
+    ) {
+      return 'DIRECT_MESSAGE';
+    }
+
+    // 2. Check sidebar section of the active conversation link
+    const pathParts = location.pathname.split('/').filter(Boolean);
+    const convoId = pathParts[pathParts.length - 1];
+    if (convoId && convoId.length >= 4) {
+      const activeLink = document.querySelector(`a[href*="${convoId}"], [data-id*="${convoId}"]`);
+      if (activeLink) {
+        const dmSection = activeLink.closest('[aria-label*="Direct messages" i], [data-section*="dm" i]');
+        if (dmSection) return 'DIRECT_MESSAGE';
+        const spaceSection = activeLink.closest('[aria-label*="Spaces" i], [data-section*="spaces" i]');
+        if (spaceSection) return 'SPACE';
+      }
+    }
+
+    // 3. Space indicators
+    const hasSpaceIndicator = Boolean(
+      document.querySelector('[data-space-id], [aria-label*="Space details" i], [aria-label*="Space options" i]') ||
+      document.querySelector('[role="main"] [data-topic-id]') ||
+      /\b\d+\s+members\b/i.test(mainText.slice(0, 500))
+    );
+    if (hasSpaceIndicator) return 'SPACE';
+
+    // 4. Comma-separated names in title indicates group chat
+    const title = detectConversationName();
+    if (title.includes(',') && title.split(',').length >= 2) {
+      return 'GROUP_CHAT';
+    }
+
+    // 5. If flat stream with 0 topic IDs or reply chips -> DIRECT_MESSAGE
+    if (document.querySelectorAll('[data-topic-id], [aria-label*="replies" i]').length === 0) {
+      return 'DIRECT_MESSAGE';
+    }
+
     return 'SPACE';
   }
 
