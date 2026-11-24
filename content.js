@@ -13,8 +13,8 @@
 (function () {
   'use strict';
 
-  if (window.__GCE_CONTENT_ENGINE_V5__) return;
-  window.__GCE_CONTENT_ENGINE_V5__ = true;
+  if (window.__GCE_CONTENT_ENGINE_V6__) return;
+  window.__GCE_CONTENT_ENGINE_V6__ = true;
 
   const LOG = (...args) => console.log('[Google Chat Exporter]', ...args);
   const WARN = (...args) => console.warn('[Google Chat Exporter]', ...args);
@@ -462,8 +462,11 @@
     if (!str) return '';
     return str
       .replace(/^Only visible to you\s*/i, '')
+      .replace(/^Message\s+/i, '')
+      .replace(/^Send a direct message to\s+/i, '')
+      .replace(/^Chat with\s+/i, '')
       .replace(/[•·]\s*Edited.*/i, '')
-      .replace(/\b(Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.?[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i, '')
+      .replace(/\b(Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?[,\s]*\d{0,2},?[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i, '')
       .replace(/[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i, '')
       .trim();
   }
@@ -476,9 +479,11 @@
     const rejectWords = [
       'google chat', 'chat user', 'replies', 'reply', 'unread', 'reaction',
       'quote', 'forward', 'edited', 'delete', 'options', 'history is on',
-      'add reaction', 'only visible to you', 'joined', 'left', 'at'
+      'history is off', 'add reaction', 'only visible to you', 'joined', 'left', 'at',
+      'space updates', 'messages sent', 'direct message', 'chat with'
     ];
     if (rejectWords.some(w => text.toLowerCase() === w || text.toLowerCase().startsWith(w + ' '))) return false;
+    if (/^Message\s+[A-Z]/i.test(text)) return false;
     return true;
   }
 
@@ -549,20 +554,22 @@
       str = str.replace(senderRegex, '');
     }
 
-    // Strip timestamp and edited markers at start (repeat in case of order variation)
+    // Strip leading commas, spaces, timestamps, and edited markers
     for (let i = 0; i < 3; i++) {
       str = str
-        .replace(/^(?:(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.?,?\s*)?\d{1,2}:\d{2}\s*(?:[AP]M)?\.?[,\s]*/i, '')
+        .replace(/^[,\s]*/, '')
+        .replace(/^(?:(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s*\d{0,2},?\s*)?\d{1,2}:\d{2}\s*(?:[AP]M)?\.?[,\s]*/i, '')
         .replace(/^[•·]?\s*Edited[,\s]*/i, '')
         .trim();
     }
 
     // Strip trailing actions: Add reaction, Reply, timestamps, Edited
     str = str
-      .replace(/Add reaction[,\s]*(?:(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.?,?\s*)?(?:\d{1,2}:\d{2}\s*(?:[AP]M)?)?[,\s]*(?:[•·]?\s*Edited)?[,\s]*$/i, '')
+      .replace(/Add reaction[,\s]*(?:(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s*\d{0,2},?\s*)?(?:\d{1,2}:\d{2}\s*(?:[AP]M)?)?[,\s]*(?:[•·]?\s*Edited)?[,\s]*$/i, '')
       .replace(/Reply in thread[,\s]*$/i, '')
       .replace(/Add reaction[,\s]*$/i, '')
       .replace(/[•·]?\s*Edited[,\s]*$/i, '')
+      .replace(/[,\s]*\d{1,2}:\d{2}\s*(?:[AP]M)?\.?[,\s]*$/i, '')
       .trim();
 
     const lines = str.split('\n')
@@ -573,7 +580,7 @@
         if (/^Add reaction$/i.test(line)) return false;
         if (/^Reply in thread$/i.test(line)) return false;
         if (/^\d+\s+repl(y|ies)/i.test(line)) return false;
-        if (/^[,\s]*(Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun)?[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i.test(line)) return false;
+        if (/^[,\s]*(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?[,\s]*\d{0,2},?[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i.test(line)) return false;
         if (/^[,\s]*[•·]?\s*Edited[,\s]*$/i.test(line)) return false;
         return true;
       });
@@ -686,7 +693,7 @@
       scrollContainer.scrollTop = 0;
       await sleep(320);
 
-      harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds);
+      harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer);
 
       const currentCount = messageAccumulator.size;
       const progressPercent = Math.min(42, 10 + Math.round((iterations / maxIterations) * 32));
@@ -724,31 +731,81 @@
       pos += step;
       scrollContainer.scrollTop = pos;
       await sleep(120);
-      harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds);
+      harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer);
     }
     scrollContainer.scrollTop = scrollContainer.scrollHeight;
     await sleep(200);
   }
 
-  function findFeedScrollContainer() {
-    const candidates = [
-      document.querySelector('[jsname="xySENc"]'),
-      document.querySelector('[role="main"] [role="list"]'),
-      document.querySelector('[data-view-type="STREAM"]'),
-      document.querySelector('[role="main"]')
-    ];
-    for (const c of candidates) {
-      if (c && !isSidebarElement(c) && (c.scrollHeight > c.clientHeight || c.offsetHeight > 350)) return c;
+  function isElementVisible(el) {
+    if (!el) return false;
+    if (isSidebarElement(el)) return false;
+    if (el.closest('[aria-hidden="true"]')) return false;
+    if (el.closest('.c-pane-sidebar, [role="navigation"]')) return false;
+    if (typeof el.offsetParent !== 'undefined' && el.offsetParent === null) {
+      if (typeof window !== 'undefined' && window.getComputedStyle) {
+        const pos = window.getComputedStyle(el).position;
+        if (pos !== 'fixed') return false;
+      }
+    }
+    if (typeof window !== 'undefined' && window.getComputedStyle) {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    }
+    return true;
+  }
+
+  function isSystemEventNode(el) {
+    if (!el) return false;
+    const text = (el.innerText || el.textContent || '').trim();
+    if (
+      text.startsWith('Space updates') ||
+      text.startsWith('History is on') ||
+      text.startsWith('You created this chat on') ||
+      text.includes('Messages sent with history on are saved')
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function getActiveMainContainer() {
+    const mainCandidates = Array.from(document.querySelectorAll('[role="main"], div[role="region"], div[data-view-type="STREAM"]'));
+    for (const main of mainCandidates) {
+      if (isSidebarElement(main)) continue;
+      if (main.closest('[aria-hidden="true"]')) continue;
+      if (main.offsetWidth > 250 && main.offsetHeight > 200) {
+        return main;
+      }
     }
     return document.querySelector('[role="main"]') || document.body;
   }
 
+  function findFeedScrollContainer() {
+    const activeMain = getActiveMainContainer();
+    const candidates = [
+      activeMain.querySelector('[jsname="xySENc"]'),
+      activeMain.querySelector('[role="list"]'),
+      activeMain.querySelector('[data-view-type="STREAM"]'),
+      activeMain
+    ];
+    for (const c of candidates) {
+      if (c && isElementVisible(c) && (c.scrollHeight > c.clientHeight || c.offsetHeight > 250)) {
+        return c;
+      }
+    }
+    return activeMain;
+  }
+
   async function expandThreadsInDOM() {
-    const expandButtons = document.querySelectorAll(
+    const activeMain = getActiveMainContainer();
+    const expandButtons = activeMain.querySelectorAll(
       '[aria-label*="replies" i][role="button"], [aria-label*="unread" i][role="button"], button[data-reply-count]'
     );
     for (const btn of expandButtons) {
       if (isCancelRequested) break;
+      const label = (btn.getAttribute('aria-label') || btn.textContent || '').trim();
+      if (/^(?:reply|reply in thread|quick reply)$/i.test(label)) continue;
       try {
         if (btn.getAttribute('aria-expanded') === 'false') {
           btn.click();
@@ -760,18 +817,24 @@
 
   // ─── DOM Message & Thread Harvesting ──────────────────────────────────────
 
-  function discoverMessageElements() {
-    const topics = Array.from(document.querySelectorAll('[data-topic-id]')).filter(el => !isSidebarElement(el));
+  function discoverMessageElements(container) {
+    const root = container || findFeedScrollContainer();
+    if (!root) return [];
+
+    const topics = Array.from(root.querySelectorAll('[data-topic-id]'))
+      .filter(el => isElementVisible(el) && !isSystemEventNode(el));
     if (topics.length > 0) return topics;
 
-    const msgs = Array.from(document.querySelectorAll('[data-message-id]')).filter(el => !isSidebarElement(el));
+    const msgs = Array.from(root.querySelectorAll('[data-message-id]'))
+      .filter(el => isElementVisible(el) && !isSystemEventNode(el));
     if (msgs.length > 0) return msgs;
 
-    const streamItems = Array.from(document.querySelectorAll('[role="main"] [role="listitem"], [role="main"] .oUJrbe')).filter(el => !isSidebarElement(el));
+    const streamItems = Array.from(root.querySelectorAll('[role="listitem"], .oUJrbe'))
+      .filter(el => isElementVisible(el) && !isSystemEventNode(el));
     if (streamItems.length > 0) return streamItems;
 
-    return Array.from(document.querySelectorAll('div[role="main"] div')).filter(el => {
-      if (isSidebarElement(el)) return false;
+    return Array.from(root.querySelectorAll('div')).filter(el => {
+      if (!isElementVisible(el) || isSystemEventNode(el)) return false;
       if (el.offsetHeight < 30 || el.offsetHeight > 4000) return false;
       const hasTime = el.querySelector('time, [data-timestamp], [data-absolute-time-ms]');
       const hasAvatar = el.querySelector('img[alt], [data-hovercard-id]');
@@ -782,8 +845,9 @@
   let runningSender = '';
   let runningAvatar = '';
 
-  function harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds) {
-    const candidates = discoverMessageElements().filter(el => {
+  function harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer) {
+    const container = scrollContainer || findFeedScrollContainer();
+    const candidates = discoverMessageElements(container).filter(el => {
       return !el.closest('[data-is-reply="true"], [jsname="oLhsH"], .gc-thread-card');
     });
 
@@ -831,15 +895,19 @@
   }
 
   function extractIndependentThreads(parentRow, parentMessageId, parentMsg, seenThreadIds, seenReplyIds) {
-    const threadContainers = parentRow.querySelectorAll(
+    const threadContainers = Array.from(parentRow.querySelectorAll(
       '[data-thread-container], [role="region"][aria-label*="Thread"], [data-topic-id]'
-    );
+    )).filter(c => c !== parentRow);
 
-    const threadChips = parentRow.querySelectorAll(
+    const threadChips = Array.from(parentRow.querySelectorAll(
       '[aria-label*="repl" i], [data-thread-id], button[data-reply-count]'
-    );
+    )).filter(btn => {
+      const label = (btn.getAttribute('aria-label') || btn.textContent || '').trim();
+      if (/^(?:reply|reply in thread|quick reply)$/i.test(label)) return false;
+      return /(\d+)\s+repl/i.test(label) || btn.hasAttribute('data-reply-count') || btn.hasAttribute('data-thread-id');
+    });
 
-    if (threadContainers.length > 1) {
+    if (threadContainers.length > 0) {
       threadContainers.forEach((tCont, idx) => {
         const threadId = tCont.getAttribute('data-thread-id') || tCont.getAttribute('data-topic-id') || `thread_${parentMessageId}_${idx + 1}`;
         let threadObj = parentMsg.threads.find(t => t.id === threadId);
@@ -852,20 +920,22 @@
             replyCount: 0,
             replies: []
           };
-          parentMsg.threads.push(threadObj);
         }
         extractRepliesIntoThread(tCont, threadId, parentMessageId, threadObj, seenReplyIds);
+        if (threadObj.replies.length > 0 && !parentMsg.threads.some(t => t.id === threadId)) {
+          parentMsg.threads.push(threadObj);
+        }
       });
     } else if (threadChips.length > 0) {
       threadChips.forEach((chip, idx) => {
+        const label = chip.getAttribute('aria-label') || chip.textContent || '';
+        const m = label.match(/(\d+)\s+repl/i);
+        const count = m ? parseInt(m[1], 10) : (parseInt(chip.getAttribute('data-reply-count'), 10) || 0);
+        if (count === 0) return;
+
         const threadId = chip.getAttribute('data-thread-id') || `thread_${parentMessageId}_${idx + 1}`;
         let threadObj = parentMsg.threads.find(t => t.id === threadId);
         if (!threadObj) {
-          const label = chip.getAttribute('aria-label') || chip.textContent || '';
-          let count = 0;
-          const m = label.match(/(\d+)\s+repl/i);
-          if (m) count = parseInt(m[1], 10);
-
           threadObj = {
             id: threadId,
             parentMessageId,
@@ -878,25 +948,6 @@
         }
         extractRepliesIntoThread(parentRow, threadId, parentMessageId, threadObj, seenReplyIds);
       });
-    } else {
-      const topicId = parentRow.getAttribute('data-topic-id');
-      if (topicId) {
-        let threadObj = parentMsg.threads.find(t => t.id === topicId);
-        if (!threadObj) {
-          threadObj = {
-            id: topicId,
-            parentMessageId,
-            threadIndex: 1,
-            title: 'Thread 1',
-            replyCount: 0,
-            replies: []
-          };
-        }
-        extractRepliesIntoThread(parentRow, topicId, parentMessageId, threadObj, seenReplyIds);
-        if (threadObj.replies.length > 0 && !parentMsg.threads.some(t => t.id === topicId)) {
-          parentMsg.threads.push(threadObj);
-        }
-      }
     }
   }
 
@@ -1030,13 +1081,16 @@
     LOG('Starting full chat export...');
     sendProgress('Detecting chat and preparing export...', 2);
 
+    runningSender = '';
+    runningAvatar = '';
+
     const scrollContainer = findFeedScrollContainer();
     const messageAccumulator = new Map();
     const seenThreadIds = new Set();
     const seenReplyIds = new Set();
 
     // 1. Initial DOM sweep
-    harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds);
+    harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer);
 
     // 2. Expand collapsed threads
     sendProgress('Expanding conversation threads...', 6);
@@ -1055,7 +1109,7 @@
     await sweepDownToBottom(scrollContainer, messageAccumulator, seenThreadIds, seenReplyIds);
 
     // 5. Final harvest
-    harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds);
+    harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer);
 
     const rawMessages = Array.from(messageAccumulator.values());
     if (rawMessages.length === 0) {
