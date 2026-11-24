@@ -848,29 +848,9 @@ body {
           <h1>${escapeHtml(convoName)}</h1>
           <div class="convo-meta-badges">
             <span class="type-badge">${escapeHtml(convoType)}</span>
-            <span class="export-date-badge">Exported: ${escapeHtml(formattedExportDate)} &bull; ${messages.length} messages &bull; ${totalThreads} threads &bull; ${totalReplies} replies</span>
+            <span class="export-date-badge">${messages.length} messages &bull; ${totalThreads} threads &bull; ${totalReplies} replies &bull; ${totalAttachments} media &bull; Exported: ${escapeHtml(formattedExportDate)}</span>
           </div>
         </div>
-      </div>
-      <div class="header-controls">
-        <button class="btn-ctrl" id="theme-toggle" title="Toggle Theme">🌙 Theme</button>
-        <button class="btn-ctrl" onclick="window.print()" title="Print Conversation">🖨️ Print</button>
-      </div>
-    </div>
-
-    <!-- Filter & Search Toolbar -->
-    <div class="filter-toolbar">
-      <div class="search-box-wrap">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="search-input" class="search-input" placeholder="Search parent messages and replies..." />
-      </div>
-      <div class="toolbar-right">
-        <select id="sender-filter" class="sender-dropdown">
-          <option value="">All Senders</option>
-          ${senderOptions}
-        </select>
-        <button class="btn-ctrl" id="expand-all-btn">Expand All Threads</button>
-        <button class="btn-ctrl" id="collapse-all-btn">Collapse All</button>
       </div>
     </div>
   </header>
@@ -891,84 +871,20 @@ body {
 <script>
 // Standalone Interactive Controller
 (function() {
-  const themeToggle = document.getElementById('theme-toggle');
-  const searchInput = document.getElementById('search-input');
-  const senderFilter = document.getElementById('sender-filter');
-  const expandAllBtn = document.getElementById('expand-all-btn');
-  const collapseAllBtn = document.getElementById('collapse-all-btn');
   const lightbox = document.getElementById('lightbox');
   const lightboxImg = document.getElementById('lightbox-img');
-
-  // Theme Toggle
-  themeToggle.addEventListener('click', () => {
-    const html = document.documentElement;
-    const isDark = html.getAttribute('data-theme') === 'dark';
-    html.setAttribute('data-theme', isDark ? 'light' : 'dark');
-    themeToggle.textContent = isDark ? '🌙 Theme' : '☀️ Theme';
-  });
 
   // Individual Thread Card Expand/Collapse
   document.querySelectorAll('.thread-header').forEach(header => {
     header.addEventListener('click', () => {
       const card = header.closest('.thread-card');
-      card.classList.toggle('collapsed');
+      if (card) card.classList.toggle('collapsed');
     });
   });
-
-  // Expand / Collapse All
-  expandAllBtn.addEventListener('click', () => {
-    document.querySelectorAll('.thread-card').forEach(c => c.classList.remove('collapsed'));
-  });
-
-  collapseAllBtn.addEventListener('click', () => {
-    document.querySelectorAll('.thread-card').forEach(c => c.classList.add('collapsed'));
-  });
-
-  // Search & Filtering
-  function applyFilter() {
-    const query = (searchInput.value || '').toLowerCase().trim();
-    const sender = (senderFilter.value || '').toLowerCase().trim();
-
-    document.querySelectorAll('.parent-message-card').forEach(card => {
-      const parentSender = (card.getAttribute('data-sender') || '').toLowerCase();
-      const parentText = (card.querySelector('.message-body-text')?.textContent || '').toLowerCase();
-
-      let replyMatch = false;
-      card.querySelectorAll('.reply-row').forEach(reply => {
-        const replySender = (reply.getAttribute('data-sender') || '').toLowerCase();
-        const replyText = (reply.querySelector('.reply-body-text')?.textContent || '').toLowerCase();
-
-        const matchSender = !sender || replySender === sender;
-        const matchQuery = !query || replyText.includes(query) || replySender.includes(query);
-
-        if (matchSender && matchQuery) {
-          replyMatch = true;
-          reply.style.display = '';
-        } else if (query || sender) {
-          reply.style.display = 'none';
-        } else {
-          reply.style.display = '';
-        }
-      });
-
-      const parentMatchSender = !sender || parentSender === sender;
-      const parentMatchQuery = !query || parentText.includes(query) || parentSender.includes(query);
-      const isVisible = (parentMatchSender && parentMatchQuery) || replyMatch;
-
-      card.style.display = isVisible ? '' : 'none';
-
-      if (replyMatch && (query || sender)) {
-        card.querySelectorAll('.thread-card').forEach(tc => tc.classList.remove('collapsed'));
-      }
-    });
-  }
-
-  searchInput.addEventListener('input', applyFilter);
-  senderFilter.addEventListener('change', applyFilter);
 
   // Lightbox click handler
   window.openLightbox = function(url) {
-    if (!url) return;
+    if (!url || !lightboxImg || !lightbox) return;
     lightboxImg.src = url;
     lightbox.classList.add('active');
   };
@@ -984,7 +900,7 @@ body {
    * @private
    */
   static _renderParentMessage(msg, index) {
-    const senderName = msg.sender?.name || 'Google Chat User';
+    const senderName = msg.sender?.name || 'Participant';
     const avatarUrl = msg.sender?.avatarUrl;
     const initial = (senderName[0] || 'U').toUpperCase();
     const avatarColor = getAvatarColor(senderName);
@@ -1062,7 +978,7 @@ body {
    * @private
    */
   static _renderReply(reply) {
-    const senderName = reply.sender?.name || 'Google Chat User';
+    const senderName = reply.sender?.name || 'Participant';
     const avatarUrl = reply.sender?.avatarUrl;
     const initial = (senderName[0] || 'U').toUpperCase();
     const avatarColor = getAvatarColor(senderName);

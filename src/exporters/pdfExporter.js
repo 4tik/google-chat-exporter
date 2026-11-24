@@ -71,7 +71,7 @@ export class PdfExporter {
     messages.forEach((msg, mIdx) => {
       checkPageBreak(25);
 
-      const senderName = msg.sender?.name || 'Google Chat User';
+      const senderName = msg.sender?.name || 'Participant';
       const timestamp = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
       const text = msg.text || '';
 
@@ -138,7 +138,7 @@ export class PdfExporter {
         // Replies in thread
         replies.forEach(reply => {
           checkPageBreak(15);
-          const rSender = reply.sender?.name || 'Google Chat User';
+          const rSender = reply.sender?.name || 'Participant';
           const rTime = reply.timestamp ? new Date(reply.timestamp).toLocaleString() : '';
           const rText = reply.text || '';
 

@@ -1,8 +1,8 @@
 /**
  * @file popup.js
  * @description Google Chat Exporter popup interface controller.
- * Configured to always export the entire chat history to a native Google Chat replica HTML
- * with embedded offline high-resolution media and strict thread preservation.
+ * Auto-injects content scripts if needed, handles tab reconnections,
+ * and executes full-history HTML export with embedded offline media.
  */
 
 'use strict';
@@ -62,6 +62,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.tabs.create({ url: 'https://chat.google.com' });
   });
 
+  /**
+   * Automatically ensures content script is injected into the active tab.
+   * Eliminates the "Could not establish connection. Receiving end does not exist" error
+   * when users reload the extension without refreshing existing Google Chat tabs!
+   */
+  async function ensureContentScriptInjected(tabId) {
+    if (!tabId) return false;
+
+    // 1. Try to ping existing content script
+    try {
+      const pingResponse = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(tabId, { action: 'PING' }, (res) => {
+          if (chrome.runtime.lastError || !res) resolve(null);
+          else resolve(res);
+        });
+      });
+      if (pingResponse && pingResponse.status === 'PONG') {
+        return true;
+      }
+    } catch (_) {}
+
+    // 2. If no response, dynamically inject scripts using chrome.scripting API
+    try {
+      if (chrome.scripting && chrome.scripting.executeScript) {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['jszip.min.js', 'jspdf.umd.min.js', 'content.js']
+        });
+        await new Promise((r) => setTimeout(r, 250));
+        return true;
+      }
+    } catch (err) {
+      console.warn('[Google Chat Exporter] Script injection failed:', err);
+    }
+
+    return false;
+  }
+
   // Check Active Tab
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -83,7 +121,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     mainContent?.classList.remove('hidden');
     statusPill.textContent = 'Connected';
 
-    // Scan Live Info
+    // Ensure script injection and scan info
+    await ensureContentScriptInjected(activeTab.id);
     scanConversationInfo();
   } catch (err) {
     console.error('Initialization error:', err);
@@ -114,6 +153,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Start Export Handler: ALWAYS WHOLE CHAT + HTML + MEDIA
   exportBtn?.addEventListener('click', async () => {
     if (isExporting || !activeTab?.id) return;
+
+    // Ensure content script is live before starting
+    const injected = await ensureContentScriptInjected(activeTab.id);
+    if (!injected) {
+      showError('Please refresh your Google Chat tab (F5) once and click Export again.');
+      return;
+    }
+
     isExporting = true;
 
     // UI Updates
@@ -148,7 +195,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       resetBtn.classList.remove('hidden');
 
       if (chrome.runtime.lastError) {
-        showError(chrome.runtime.lastError.message);
+        const errMsg = chrome.runtime.lastError.message || '';
+        if (errMsg.includes('Receiving end does not exist')) {
+          showError('Connection refreshed. Please reload your Google Chat tab (F5) and click Export.');
+        } else {
+          showError(errMsg);
+        }
         exportStatusBadge.textContent = 'Export incomplete';
         return;
       }

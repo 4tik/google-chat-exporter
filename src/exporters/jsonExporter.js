@@ -43,7 +43,7 @@ export class JsonExporter {
             parentMessageId: r.parentMessageId || msg.id,
             sender: {
               id: r.sender?.id || null,
-              name: r.sender?.name || 'Google Chat User',
+              name: r.sender?.name || 'Participant',
               avatarUrl: r.sender?.avatarUrl || null
             },
             text: r.text || '',
@@ -75,7 +75,7 @@ export class JsonExporter {
         id: msg.id || `MSG-${String(mIdx + 1).padStart(3, '0')}`,
         sender: {
           id: msg.sender?.id || null,
-          name: msg.sender?.name || 'Google Chat User',
+          name: msg.sender?.name || 'Participant',
           avatarUrl: msg.sender?.avatarUrl || null
         },
         text: msg.text || '',

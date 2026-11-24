@@ -217,7 +217,7 @@ export class ReplyExtractor {
 
     return {
       id: senderId,
-      name: name || 'Google Chat User',
+      name: name || 'Participant',
       avatarUrl
     };
   }
