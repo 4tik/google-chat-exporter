@@ -13,8 +13,8 @@
 (function () {
   'use strict';
 
-  if (window.__GCE_CONTENT_ENGINE_V6__) return;
-  window.__GCE_CONTENT_ENGINE_V6__ = true;
+  if (window.__GCE_CONTENT_ENGINE_V7__) return;
+  window.__GCE_CONTENT_ENGINE_V7__ = true;
 
   const LOG = (...args) => console.log('[Google Chat Exporter]', ...args);
   const WARN = (...args) => console.warn('[Google Chat Exporter]', ...args);
@@ -53,11 +53,16 @@
     try {
       const d = new Date(isoStr);
       if (isNaN(d.getTime())) return isoStr;
-      return d.toLocaleTimeString(undefined, {
+      const timePart = d.toLocaleTimeString(undefined, {
         hour: 'numeric',
         minute: '2-digit',
         hour12: true
       });
+      const monthPart = d.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric'
+      });
+      return `${monthPart}, ${timePart}`;
     } catch (_) {
       return isoStr;
     }
@@ -71,8 +76,7 @@
       return d.toLocaleDateString(undefined, {
         weekday: 'long',
         month: 'short',
-        day: 'numeric',
-        year: 'numeric'
+        day: 'numeric'
       });
     } catch (_) {
       return '';
@@ -356,6 +360,18 @@
       return Boolean(el.closest('[aria-label*="repl" i], [aria-label*="unread" i], .gchat-thread-bar'));
     };
 
+    // 0. Check if outgoing / self message
+    const rowAria = row.getAttribute('aria-label') || '';
+    if (/^(?:You|Me)\b/i.test(rowAria) || row.querySelector('[data-is-self="true"]') || row.getAttribute('data-is-self') === 'true') {
+      return 'You';
+    }
+    const isAlignRight = row.style?.justifyContent === 'flex-end' ||
+                         row.classList.contains('outgoing') ||
+                         row.querySelector('.outgoing, [data-self="true"]');
+    if (isAlignRight) {
+      return 'You';
+    }
+
     // 1. Inspect avatar element aria-labels (Google Chat standard for photo & initial avatars)
     const avatarEls = row.querySelectorAll('img[alt], [role="img"][aria-label], [data-hovercard-id], [aria-label*="photo" i], [aria-label*="profile" i]');
     for (const el of avatarEls) {
@@ -563,12 +579,13 @@
         .trim();
     }
 
-    // Strip trailing actions: Add reaction, Reply, timestamps, Edited
+    // Strip trailing actions: Add reaction, Reply, timestamps, Edited, Read receipts
     str = str
       .replace(/Add reaction[,\s]*(?:(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s*\d{0,2},?\s*)?(?:\d{1,2}:\d{2}\s*(?:[AP]M)?)?[,\s]*(?:[•·]?\s*Edited)?[,\s]*$/i, '')
       .replace(/Reply in thread[,\s]*$/i, '')
       .replace(/Add reaction[,\s]*$/i, '')
       .replace(/[•·]?\s*Edited[,\s]*$/i, '')
+      .replace(/Message viewed by.*$/i, '')
       .replace(/[,\s]*\d{1,2}:\d{2}\s*(?:[AP]M)?\.?[,\s]*$/i, '')
       .trim();
 
@@ -580,6 +597,7 @@
         if (/^Add reaction$/i.test(line)) return false;
         if (/^Reply in thread$/i.test(line)) return false;
         if (/^\d+\s+repl(y|ies)/i.test(line)) return false;
+        if (/^Message viewed by/i.test(line)) return false;
         if (/^[,\s]*(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?[,\s]*\d{0,2},?[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i.test(line)) return false;
         if (/^[,\s]*[•·]?\s*Edited[,\s]*$/i.test(line)) return false;
         return true;
@@ -605,8 +623,8 @@
       }
     }
 
-    const TIME_REGEX = /\b((Mon|Tue|Wed|Thu|Fri|Sat|Sun|Yesterday|Today)[a-z]*\.?[\s\u00A0]*,?[\s\u00A0]*)?\d{1,2}:\d{2}([\s\u00A0]*[AP]M)?\b/i;
-    const candidates = row.querySelectorAll('span, div');
+    const TIME_REGEX = /\b(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|Yesterday|Today|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?[\s\u00A0]*,?[\s\u00A0]*\d{0,2},?[\s\u00A0]*)?\d{1,2}:\d{2}([\s\u00A0]*[AP]M)?\b/i;
+    const candidates = row.querySelectorAll('span, div, time');
     for (const el of candidates) {
       if (el.closest('[aria-label*="repl" i], button')) continue;
       const text = (el.innerText || el.textContent || '').trim();
@@ -622,8 +640,42 @@
   function parseDateStringToIso(str) {
     if (!str) return new Date().toISOString();
     try {
-      const d = new Date(str);
-      if (!isNaN(d.getTime())) return d.toISOString();
+      const currentYear = new Date().getFullYear();
+
+      // 1. Match month + day + time (e.g. "Sep 29, 3:59 PM" or "Sep 30, 12:38 PM")
+      const mFull = str.match(/([A-Za-z]{3,9})\s+(\d{1,2}),?\s*(\d{1,2}):(\d{2})(?:\s*([AP]M))?/i);
+      if (mFull) {
+        const month = mFull[1];
+        const day = mFull[2];
+        let hours = parseInt(mFull[3], 10);
+        const minutes = parseInt(mFull[4], 10);
+        const ampm = mFull[5] ? mFull[5].toUpperCase() : '';
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+        const d = new Date(Date.parse(`${month} ${day}, ${currentYear} ${hours}:${minutes < 10 ? '0' + minutes : minutes}:00`));
+        if (!isNaN(d.getTime())) return d.toISOString();
+      }
+
+      // 2. Direct Date parse if year > 2010
+      let d = new Date(str);
+      if (!isNaN(d.getTime()) && d.getFullYear() > 2010) return d.toISOString();
+
+      // 3. Try with current year appended
+      d = new Date(str + ', ' + currentYear);
+      if (!isNaN(d.getTime()) && d.getFullYear() > 2010) return d.toISOString();
+
+      // 4. Time only, e.g. "3:59 PM"
+      const mTime = str.match(/(\d{1,2}):(\d{2})(?:\s*([AP]M))?/i);
+      if (mTime) {
+        let hours = parseInt(mTime[1], 10);
+        const minutes = parseInt(mTime[2], 10);
+        const ampm = mTime[3] ? mTime[3].toUpperCase() : '';
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+        const now = new Date();
+        now.setHours(hours, minutes, 0, 0);
+        return now.toISOString();
+      }
     } catch (_) {}
     return new Date().toISOString();
   }
@@ -651,6 +703,15 @@
     el.querySelectorAll('img[src]:not([data-hovercard-id] img):not(.avatar img)').forEach(img => {
       const src = img.currentSrc || img.src || '';
       if (!src || /fonts\.gstatic\.com/i.test(src) || src.startsWith('data:image/svg')) return;
+      // Skip read receipt avatars and tiny icons
+      if (
+        img.closest('[aria-label*="viewed by" i], [aria-label*="read receipt" i], [data-tooltip*="viewed" i]') ||
+        (img.alt && /viewed by/i.test(img.alt)) ||
+        (img.clientWidth > 0 && img.clientWidth <= 24) ||
+        (img.clientHeight > 0 && img.clientHeight <= 24)
+      ) {
+        return;
+      }
       attachments.push({
         id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         type: 'image',
@@ -863,8 +924,9 @@
           runningSender = senderName;
         }
 
-        let avatarUrl = extractAvatarUrl(row) || runningAvatar;
-        if (avatarUrl) runningAvatar = avatarUrl;
+        const isSelf = senderName.toLowerCase() === 'you';
+        let avatarUrl = isSelf ? null : (extractAvatarUrl(row) || runningAvatar);
+        if (avatarUrl && !isSelf) runningAvatar = avatarUrl;
 
         const sender = {
           name: senderName,
@@ -885,6 +947,7 @@
           edited,
           reactions,
           attachments,
+          isSelf,
           threads: []
         };
         messageAccumulator.set(msgId, msg);
@@ -1209,19 +1272,32 @@
     });
 
     let lastDateStr = '';
+    let prevMsg = null;
     const renderedFeed = [];
 
     messages.forEach((msg, idx) => {
       const dateStr = formatDateDivider(msg.timestamp);
+      let isNewDay = false;
       if (dateStr && dateStr !== lastDateStr) {
         renderedFeed.push(`
           <div class="gc-date-divider-row">
-            <span class="gc-date-divider-pill">${escapeHtml(dateStr)}</span>
+            <span class="gc-date-divider-text">${escapeHtml(dateStr)}</span>
           </div>
         `);
         lastDateStr = dateStr;
+        isNewDay = true;
       }
-      renderedFeed.push(renderParentMessageHtml(msg, idx + 1));
+
+      let isContinuation = false;
+      if (!isNewDay && prevMsg && (prevMsg.sender?.name || '') === (msg.sender?.name || '')) {
+        const timeDiff = Math.abs(new Date(msg.timestamp || 0) - new Date(prevMsg.timestamp || 0));
+        if (timeDiff <= 3 * 60 * 1000 && (!prevMsg.threads || prevMsg.threads.length === 0) && (!msg.threads || msg.threads.length === 0)) {
+          isContinuation = true;
+        }
+      }
+
+      renderedFeed.push(renderParentMessageHtml(msg, idx + 1, isContinuation));
+      prevMsg = msg;
     });
 
     return `<!DOCTYPE html>
@@ -1231,12 +1307,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(convoName)} - Google Chat</title>
 <style>
-/* ─── Exact Native Google Chat Styling & Palette ─── */
+/* ─── Exact Native Google Chat Styling & Speech Bubbles ─── */
 :root {
   --font-family: 'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
   --bg-page: #ffffff;
   --bg-header: #ffffff;
-  --bg-chat-pane: #ffffff;
+  --bg-incoming-bubble: #f0f4f9;
+  --bg-outgoing-bubble: #1f1f1f;
+  --text-incoming-bubble: #1f1f1f;
+  --text-outgoing-bubble: #ffffff;
   --bg-hover: #f8fafd;
   --bg-thread-card: #f8fafd;
   --bg-reply: #ffffff;
@@ -1255,6 +1334,7 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --radius-avatar: 50%;
   --radius-pill: 20px;
+  --radius-bubble: 18px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1267,14 +1347,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Authentic Google Chat Top Bar */
+/* Authentic Google Chat Top Bar (Clean, Minimal, No Clutter) */
 .gc-app-header {
   position: sticky;
   top: 0;
   z-index: 100;
   background: var(--bg-header);
   border-bottom: 1px solid var(--border-color);
-  padding: 14px 28px;
+  padding: 12px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1284,7 +1364,7 @@ body {
 .gc-header-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .gc-logo-icon {
@@ -1332,10 +1412,44 @@ body {
 
 /* Chat Feed */
 .gc-main-feed-container {
-  max-width: 980px;
+  max-width: 920px;
   width: 100%;
   margin: 0 auto;
-  padding: 16px 20px 60px;
+  padding: 24px 20px 80px;
+}
+
+/* History Banner */
+.gc-history-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 16px 0 28px;
+  text-align: center;
+  user-select: none;
+}
+
+.gc-history-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.gc-history-title svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+}
+
+.gc-history-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
 }
 
 /* Date Divider */
@@ -1343,52 +1457,37 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-  margin: 24px 0 16px;
+  margin: 28px 0 16px;
   user-select: none;
 }
 
-.gc-date-divider-row::before {
-  content: '';
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  height: 1px;
-  background: var(--border-color);
-  z-index: 1;
-}
-
-.gc-date-divider-pill {
-  position: relative;
-  z-index: 2;
-  background: var(--bg-header);
-  border: 1px solid var(--border-color);
-  color: var(--text-muted);
-  font-size: 12px;
+.gc-date-divider-text {
+  font-size: 13px;
   font-weight: 500;
-  padding: 4px 14px;
-  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
 }
 
-/* Parent Message */
-.gc-parent-message {
-  padding: 14px 18px;
-  border-radius: 8px;
-  margin-bottom: 6px;
-  transition: background-color 0.1s ease;
+/* Message Rows */
+.gc-msg-row {
+  margin-bottom: 12px;
 }
 
-.gc-parent-message:hover {
-  background-color: var(--bg-hover);
-}
-
-.gc-message-layout {
+/* Incoming Message Row (Left-aligned) */
+.gc-msg-incoming {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 12px;
 }
 
-.gc-avatar-col { flex-shrink: 0; }
+.gc-avatar-col {
+  flex-shrink: 0;
+  width: 36px;
+}
+
+.gc-avatar-spacer {
+  width: 36px;
+  height: 1px;
+}
 
 .gc-avatar-circle {
   width: 36px;
@@ -1409,25 +1508,28 @@ body {
   object-fit: cover;
 }
 
-.gc-content-col {
+.gc-incoming-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
-.gc-meta-line {
+.gc-msg-incoming-meta {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .gc-sender-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.gc-timestamp-text {
+.gc-timestamp {
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -1437,26 +1539,66 @@ body {
   color: var(--text-muted);
 }
 
-.gc-body-text {
+/* Incoming Speech Bubble (Light Grey/Blue) */
+.gc-bubble-incoming {
+  background-color: var(--bg-incoming-bubble);
+  color: var(--text-incoming-bubble);
+  border-radius: var(--radius-bubble);
+  padding: 8px 16px;
   font-size: 14px;
-  color: var(--text-primary);
   line-height: 1.5;
-  white-space: pre-wrap;
+  max-width: 72%;
   word-break: break-word;
+  white-space: pre-wrap;
+  display: inline-block;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
-.gc-body-text a {
-  color: var(--google-blue);
-  text-decoration: none;
+/* Outgoing Message Row (Right-aligned) */
+.gc-msg-outgoing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
-.gc-body-text a:hover { text-decoration: underline; }
+
+.gc-msg-outgoing-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+  padding-right: 4px;
+}
+
+/* Outgoing Speech Bubble (Dark Charcoal / Black) */
+.gc-bubble-outgoing {
+  background-color: var(--bg-outgoing-bubble);
+  color: var(--text-outgoing-bubble);
+  border-radius: var(--radius-bubble);
+  padding: 8px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 72%;
+  word-break: break-word;
+  white-space: pre-wrap;
+  display: inline-block;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.gc-bubble-incoming a,
+.gc-bubble-outgoing a {
+  color: #8ab4f8;
+  text-decoration: underline;
+}
+
+.gc-bubble-incoming a {
+  color: var(--google-blue);
+}
 
 /* Reactions */
 .gc-reactions-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .gc-reaction-chip {
@@ -1481,7 +1623,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .gc-screenshot-card {
@@ -1525,6 +1667,7 @@ body {
 /* In-line Thread Container & Cards */
 .gc-threads-container {
   margin-top: 10px;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1672,6 +1815,15 @@ body {
 
 <!-- Chat Feed -->
 <main class="gc-main-feed-container">
+  <div class="gc-history-banner">
+    <div class="gc-history-title">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+      </svg>
+      <span>HISTORY IS ON</span>
+    </div>
+    <div class="gc-history-sub">Messages sent with history on are saved</div>
+  </div>
   ${renderedFeed.join('\n') || '<div style="padding:48px;text-align:center;color:var(--text-muted);">No messages found.</div>'}
 </main>
 
@@ -1704,8 +1856,9 @@ body {
 </html>`;
   }
 
-  function renderParentMessageHtml(msg, index) {
+  function renderParentMessageHtml(msg, index, isContinuation = false) {
     const senderName = msg.sender?.name || 'Participant';
+    const isSelf = senderName.toLowerCase() === 'you' || Boolean(msg.isSelf);
     const avatarUrl = msg.sender?.avatarUrl;
     const initial = (senderName[0] || 'P').toUpperCase();
     const avatarColor = getAvatarColor(senderName);
@@ -1725,25 +1878,41 @@ body {
       </div>`;
     }
 
+    if (isSelf) {
+      // Outgoing message (Right-aligned speech bubble, dark charcoal, white text)
+      return `
+      <article class="gc-msg-row gc-msg-outgoing parent-message-card" id="msg-${escapeHtml(msg.id)}" data-sender="You">
+        ${!isContinuation ? `
+        <div class="gc-msg-outgoing-meta">
+          <span class="gc-timestamp">${escapeHtml(timeStr)}</span>
+        </div>` : ''}
+        <div class="gc-bubble-outgoing">${escapeHtml(textContent)}</div>
+        ${attachmentsHtml}
+        ${reactionsHtml}
+        ${threadsSectionHtml}
+      </article>`;
+    }
+
+    // Incoming message (Left-aligned speech bubble, light grey/blue, avatar on left)
     return `
-    <article class="gc-parent-message parent-message-card" id="msg-${escapeHtml(msg.id)}">
-      <div class="gc-message-layout">
-        <div class="gc-avatar-col">
-          <div class="gc-avatar-circle" style="background-color: ${avatarColor};">
-            ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(senderName)}" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(initial)}'" />` : initial}
-          </div>
-        </div>
-        <div class="gc-content-col">
-          <div class="gc-meta-line">
-            <span class="gc-sender-name">${escapeHtml(senderName)}</span>
-            <span class="gc-timestamp-text">${escapeHtml(timeStr)}</span>
-            ${msg.edited ? '<span class="gc-edited-tag">(edited)</span>' : ''}
-          </div>
-          <div class="gc-body-text">${escapeHtml(textContent)}</div>
-          ${attachmentsHtml}
-          ${reactionsHtml}
-          ${threadsSectionHtml}
-        </div>
+    <article class="gc-msg-row gc-msg-incoming parent-message-card" id="msg-${escapeHtml(msg.id)}" data-sender="${escapeHtml(senderName)}">
+      <div class="gc-avatar-col">
+        ${!isContinuation ? `
+        <div class="gc-avatar-circle" style="background-color: ${avatarColor};">
+          ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(senderName)}" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(initial)}'" />` : initial}
+        </div>` : `<div class="gc-avatar-spacer"></div>`}
+      </div>
+      <div class="gc-incoming-content">
+        ${!isContinuation ? `
+        <div class="gc-msg-incoming-meta">
+          <span class="gc-sender-name">${escapeHtml(senderName)}</span>
+          <span class="gc-timestamp">${escapeHtml(timeStr)}</span>
+          ${msg.edited ? '<span class="gc-edited-tag">(edited)</span>' : ''}
+        </div>` : ''}
+        <div class="gc-bubble-incoming">${escapeHtml(textContent)}</div>
+        ${attachmentsHtml}
+        ${reactionsHtml}
+        ${threadsSectionHtml}
       </div>
     </article>`;
   }

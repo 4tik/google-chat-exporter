@@ -133,19 +133,32 @@ export class HtmlExporter {
 
     // Group messages with date dividers
     let lastDateStr = '';
+    let prevMsg = null;
     const renderedItems = [];
 
     messages.forEach((msg, index) => {
       const dateStr = formatDateDivider(msg.timestamp);
+      let isNewDay = false;
       if (dateStr && dateStr !== lastDateStr) {
         renderedItems.push(`
-          <div class="date-divider-row">
-            <span class="date-divider-pill">${escapeHtml(dateStr)}</span>
+          <div class="gc-date-divider-row date-divider-row">
+            <span class="gc-date-divider-text date-divider-pill">${escapeHtml(dateStr)}</span>
           </div>
         `);
         lastDateStr = dateStr;
+        isNewDay = true;
       }
-      renderedItems.push(this._renderParentMessage(msg, index + 1));
+
+      let isContinuation = false;
+      if (!isNewDay && prevMsg && (prevMsg.sender?.name || '') === (msg.sender?.name || '')) {
+        const timeDiff = Math.abs(new Date(msg.timestamp || 0) - new Date(prevMsg.timestamp || 0));
+        if (timeDiff <= 3 * 60 * 1000 && (!prevMsg.threads || prevMsg.threads.length === 0) && (!msg.threads || msg.threads.length === 0)) {
+          isContinuation = true;
+        }
+      }
+
+      renderedItems.push(this._renderParentMessage(msg, index + 1, isContinuation));
+      prevMsg = msg;
     });
 
     const messagesHtml = renderedItems.join('\n');
@@ -409,42 +422,165 @@ body {
   flex-direction: column;
 }
 
+/* History Banner */
+.gc-history-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 16px 0 28px;
+  text-align: center;
+  user-select: none;
+}
+
+.gc-history-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.gc-history-title svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+}
+
+.gc-history-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 /* Date Divider */
-.date-divider-row {
+.date-divider-row,
+.gc-date-divider-row {
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  margin: 24px 0 16px;
+  margin: 28px 0 16px;
   user-select: none;
 }
 
-.date-divider-row::before {
-  content: '';
-  position: absolute;
-  left: 32px;
-  right: 32px;
-  height: 1px;
-  background: var(--border-color);
-  z-index: 1;
-}
-
+.gc-date-divider-text,
 .date-divider-pill {
   position: relative;
   z-index: 2;
-  background: var(--bg-header);
-  border: 1px solid var(--border-color);
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 500;
   padding: 4px 14px;
-  border-radius: var(--radius-pill);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* Message Rows & Speech Bubbles */
+.gc-msg-row {
+  margin-bottom: 12px;
+  padding: 8px 16px;
+}
+
+.gc-msg-incoming {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.gc-avatar-col {
+  flex-shrink: 0;
+  width: 36px;
+}
+
+.gc-avatar-spacer {
+  width: 36px;
+  height: 1px;
+}
+
+.gc-avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-avatar);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+}
+
+.gc-incoming-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.gc-msg-incoming-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.gc-bubble-incoming {
+  background-color: #f0f4f9;
+  color: #1f1f1f;
+  border-radius: 18px;
+  padding: 8px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 72%;
+  word-break: break-word;
+  white-space: pre-wrap;
+  display: inline-block;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .gc-bubble-incoming {
+  background-color: #282a2c;
+  color: #e3e3e3;
+}
+
+.gc-msg-outgoing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.gc-msg-outgoing-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+  padding-right: 4px;
+}
+
+.gc-bubble-outgoing {
+  background-color: #1f1f1f;
+  color: #ffffff;
+  border-radius: 18px;
+  padding: 8px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 72%;
+  word-break: break-word;
+  white-space: pre-wrap;
+  display: inline-block;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="dark"] .gc-bubble-outgoing {
+  background-color: #004d40;
+  color: #ffffff;
 }
 
 /* Parent Message Row */
 .parent-message-card {
-  padding: 16px 24px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--border-subtle);
   transition: background-color 0.15s ease;
 }
@@ -857,6 +993,15 @@ body {
 
   <!-- Main Chat Pane -->
   <main class="chat-container">
+    <div class="gc-history-banner">
+      <div class="gc-history-title">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+        </svg>
+        <span>HISTORY IS ON</span>
+      </div>
+      <div class="gc-history-sub">Messages sent with history on are saved</div>
+    </div>
     <div class="chat-card-pane" id="chat-pane">
       ${messagesHtml || '<div style="padding:48px;text-align:center;color:var(--text-muted);">No messages found in conversation.</div>'}
     </div>
@@ -899,8 +1044,9 @@ body {
    * message body, media attachments, and separate independent threads.
    * @private
    */
-  static _renderParentMessage(msg, index) {
+  static _renderParentMessage(msg, index, isContinuation = false) {
     const senderName = msg.sender?.name || 'Participant';
+    const isSelf = senderName.toLowerCase() === 'you' || Boolean(msg.isSelf);
     const avatarUrl = msg.sender?.avatarUrl;
     const initial = (senderName[0] || 'U').toUpperCase();
     const avatarColor = getAvatarColor(senderName);
@@ -915,26 +1061,42 @@ body {
     if (threads.length > 0) {
       const threadsHtml = threads.map((thread, tIdx) => this._renderThread(thread, tIdx + 1, msg.id)).join('\n');
       threadsSectionHtml = `
-      <div class="threads-block-wrap">
+      <div class="threads-block-wrap gc-threads-container">
         ${threadsHtml}
       </div>`;
     }
 
+    if (isSelf) {
+      return `
+      <article class="parent-message-card" id="msg-${escapeHtml(msg.id)}" data-sender="You" data-is-self="true">
+        ${!isContinuation ? `
+        <div class="gc-msg-outgoing-meta">
+          <span class="message-time-text gc-timestamp">${escapeHtml(timeStr)}</span>
+        </div>` : ''}
+        <div class="gc-bubble-outgoing">${escapeHtml(textContent)}</div>
+        ${attachmentsHtml}
+        ${reactionsHtml}
+        ${threadsSectionHtml}
+      </article>`;
+    }
+
     return `
     <article class="parent-message-card" id="msg-${escapeHtml(msg.id)}" data-sender="${escapeHtml(senderName)}">
-      <div class="message-main-layout">
-        <div class="avatar-col">
-          <div class="avatar-circle" style="background-color: ${avatarColor};">
+      <div class="gc-msg-incoming">
+        <div class="avatar-col gc-avatar-col">
+          ${!isContinuation ? `
+          <div class="avatar-circle gc-avatar-circle" style="background-color: ${avatarColor};">
             ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(senderName)}" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(initial)}'" />` : initial}
-          </div>
+          </div>` : `<div class="gc-avatar-spacer"></div>`}
         </div>
-        <div class="message-content-col">
-          <div class="message-meta-header">
-            <span class="sender-display-name">${escapeHtml(senderName)}</span>
-            <span class="message-time-text">${escapeHtml(timeStr)}</span>
-            ${msg.edited ? '<span class="edited-indicator">(edited)</span>' : ''}
-          </div>
-          <div class="message-body-text">${escapeHtml(textContent)}</div>
+        <div class="message-content-col gc-incoming-content">
+          ${!isContinuation ? `
+          <div class="message-meta-header gc-msg-incoming-meta">
+            <span class="sender-display-name gc-sender-name">${escapeHtml(senderName)}</span>
+            <span class="message-time-text gc-timestamp">${escapeHtml(timeStr)}</span>
+            ${msg.edited ? '<span class="edited-indicator gc-edited-tag">(edited)</span>' : ''}
+          </div>` : ''}
+          <div class="gc-bubble-incoming message-body-text">${escapeHtml(textContent)}</div>
           ${attachmentsHtml}
           ${reactionsHtml}
           ${threadsSectionHtml}
