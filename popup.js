@@ -1,15 +1,29 @@
 /**
- * ChatVault - Popup Controller v1.1
- * Manages Single & Batch conversation selection, HTML / PDF / Both format exporting,
- * real-time 4-metric progress tracking, and export cancellation.
+ * @file popup.js
+ * @description Google Chat Exporter popup interface controller.
+ * Displays conversation context, live metrics (messages, threads, replies, attachments),
+ * export format controls (HTML, PDF, JSON, ZIP), real-time progress, and cancellation.
  */
 
+'use strict';
+
 document.addEventListener('DOMContentLoaded', async () => {
-  // Navigation & Detection
+  // Elements
   const wrongTabView = document.getElementById('wrong-tab-view');
   const mainContent = document.getElementById('main-content');
   const openChatBtn = document.getElementById('open-chat-btn');
-  const speedBadge = document.getElementById('speed-badge');
+  const statusPill = document.getElementById('status-pill');
+
+  // Conversation Info
+  const conversationNameEl = document.getElementById('conversation-name');
+  const conversationTypeBadge = document.getElementById('conversation-type-badge');
+  const exportStatusBadge = document.getElementById('export-status-badge');
+
+  // Discovered Metrics
+  const metricDiscoveredMessages = document.getElementById('metric-discovered-messages');
+  const metricDiscoveredThreads = document.getElementById('metric-discovered-threads');
+  const metricDiscoveredReplies = document.getElementById('metric-discovered-replies');
+  const metricDiscoveredAttachments = document.getElementById('metric-discovered-attachments');
 
   // Scope Tabs
   const tabScopeSingle = document.getElementById('tab-scope-single');
@@ -17,11 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const singleChatView = document.getElementById('single-chat-view');
   const batchChatView = document.getElementById('batch-chat-view');
 
-  // Single Chat View Info
-  const conversationNameEl = document.getElementById('conversation-name');
-  const conversationMetaEl = document.getElementById('conversation-meta');
-
-  // Batch Elements
+  // Batch Selection Elements
   const refreshConvosBtn = document.getElementById('refresh-convos-btn');
   const batchSearchInput = document.getElementById('batch-search-input');
   const selectAllBtn = document.getElementById('select-all-btn');
@@ -29,19 +39,46 @@ document.addEventListener('DOMContentLoaded', async () => {
   const conversationListEl = document.getElementById('conversation-list');
   const batchSelectionCountEl = document.getElementById('batch-selection-count');
 
-  // Formats
+  // Format Radios
   const formatHtmlRadio = document.getElementById('format-html');
   const formatPdfRadio = document.getElementById('format-pdf');
-  const formatBothRadio = document.getElementById('format-both');
-  const formatHtmlLabel = document.getElementById('format-html-label');
-  const formatPdfLabel = document.getElementById('format-pdf-label');
-  const formatBothLabel = document.getElementById('format-both-label');
+  const formatJsonRadio = document.getElementById('format-json');
+  const formatZipRadio = document.getElementById('format-zip');
+
+  const formatLabels = {
+    html: document.getElementById('format-html-label'),
+    pdf: document.getElementById('format-pdf-label'),
+    json: document.getElementById('format-json-label'),
+    zip: document.getElementById('format-zip-label')
+  };
 
   // Options
   const autoScrollToggle = document.getElementById('auto-scroll-toggle');
   const downloadImagesToggle = document.getElementById('download-images-toggle');
-  const scrollDesc = document.getElementById('scroll-desc');
-  const imagesDesc = document.getElementById('images-desc');
+
+  // Progress Card Elements
+  const progressCard = document.getElementById('progress-card');
+  const progressTargetText = document.getElementById('progress-target-text');
+  const progressPhaseText = document.getElementById('progress-phase-text');
+  const progressPercentText = document.getElementById('progress-percent-text');
+  const progressBarFill = document.getElementById('progress-bar-fill');
+  const progressDetailText = document.getElementById('progress-detail-text');
+
+  const metricProcessedMessages = document.getElementById('metric-processed-messages');
+  const metricProcessedThreads = document.getElementById('metric-processed-threads');
+  const metricProcessedReplies = document.getElementById('metric-processed-replies');
+  const metricProcessedAttachments = document.getElementById('metric-processed-attachments');
+  const metricTime = document.getElementById('metric-time');
+
+  // Success & Error Cards
+  const successCard = document.getElementById('success-card');
+  const successHeadline = document.getElementById('success-headline');
+  const successFilename = document.getElementById('success-filename');
+  const successStatsBox = document.getElementById('success-stats-box');
+
+  const errorCard = document.getElementById('error-card');
+  const errorMessage = document.getElementById('error-message');
+  const diagnoseBtn = document.getElementById('diagnose-btn');
 
   // Action Buttons
   const exportBtn = document.getElementById('export-btn');
@@ -51,547 +88,316 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnIcon = document.getElementById('btn-icon');
   const btnText = document.getElementById('btn-text');
 
-  // Progress Card Elements
-  const progressCard = document.getElementById('progress-card');
-  const progressTargetText = document.getElementById('progress-target-text');
-  const progressPhaseText = document.getElementById('progress-phase-text');
-  const progressPercentText = document.getElementById('progress-percent-text');
-  const progressBarFill = document.getElementById('progress-bar-fill');
-  const progressDetailText = document.getElementById('progress-detail-text');
-  const metricDiscovered = document.getElementById('metric-discovered');
-  const metricProcessed = document.getElementById('metric-processed');
-  const metricSkipped = document.getElementById('metric-skipped');
-  const metricFailed = document.getElementById('metric-failed');
-  const metricTime = document.getElementById('metric-time');
-
-  const diagnoseBtn = document.getElementById('diagnose-btn');
-
-  // Result & Error Cards
-  const successCard = document.getElementById('success-card');
-  const successHeadline = document.getElementById('success-headline');
-  const successFilename = document.getElementById('success-filename');
-  const successStatsBox = document.getElementById('success-stats-box');
-  const successBundlePills = document.getElementById('success-bundle-pills');
-  const errorCard = document.getElementById('error-card');
-  const errorMessage = document.getElementById('error-message');
-
   let activeTab = null;
   let timerInterval = null;
   let startTime = null;
   let isExporting = false;
-  let currentScope = 'single'; // 'single' or 'batch'
+  let currentScope = 'single';
   let discoveredConversations = [];
 
-  // Load preferences
-  try {
-    const savedFormat = localStorage.getItem('chatvault_format') || 'html';
-    if (savedFormat === 'pdf') formatPdfRadio.checked = true;
-    else if (savedFormat === 'both') formatBothRadio.checked = true;
-    else formatHtmlRadio.checked = true;
+  // Format Selection Update
+  function updateFormatUI(format) {
+    Object.keys(formatLabels).forEach(key => {
+      if (formatLabels[key]) {
+        formatLabels[key].classList.toggle('active', key === format);
+      }
+    });
 
-    autoScrollToggle.checked = localStorage.getItem('chatvault_autoscroll') === 'true';
-    const savedImages = localStorage.getItem('chatvault_images');
-    downloadImagesToggle.checked = savedImages === null ? true : savedImages === 'true';
-  } catch (e) {}
+    const formatLabelsMap = {
+      html: 'Save as HTML',
+      pdf: 'Save as PDF',
+      json: 'Save as JSON',
+      zip: 'Save as ZIP'
+    };
+    btnText.textContent = formatLabelsMap[format] || 'Start Export';
+  }
+
+  [formatHtmlRadio, formatPdfRadio, formatJsonRadio, formatZipRadio].forEach(radio => {
+    if (radio) {
+      radio.addEventListener('change', () => {
+        if (radio.checked) updateFormatUI(radio.value);
+      });
+    }
+  });
 
   function getSelectedFormat() {
-    if (formatPdfRadio.checked) return 'pdf';
-    if (formatBothRadio.checked) return 'both';
+    if (formatPdfRadio?.checked) return 'pdf';
+    if (formatJsonRadio?.checked) return 'json';
+    if (formatZipRadio?.checked) return 'zip';
     return 'html';
   }
 
-  function updateUiLabels() {
-    const fmt = getSelectedFormat();
-    formatHtmlLabel.classList.toggle('active', fmt === 'html');
-    formatPdfLabel.classList.toggle('active', fmt === 'pdf');
-    formatBothLabel.classList.toggle('active', fmt === 'both');
-
-    if (fmt === 'pdf') {
-      imagesDesc.textContent = 'Embeds images scaled cleanly within PDF page boundaries.';
-      speedBadge.textContent = '📑 PDF Ready';
-    } else if (fmt === 'both') {
-      imagesDesc.textContent = 'Exports both HTML & PDF with images bundled in ZIP.';
-      speedBadge.textContent = '📦 Complete Bundle';
-    } else {
-      imagesDesc.textContent = 'Embeds full-resolution photos directly inside the HTML.';
-      speedBadge.textContent = '⚡ Instant HTML';
-    }
-
-    if (autoScrollToggle.checked) {
-      scrollDesc.textContent = 'Sweeps top-to-bottom to render all messages & media.';
-    } else {
-      scrollDesc.textContent = 'Off = Fast export of loaded chat. On = Loads older history.';
-    }
-
-    if (!isExporting) {
-      const selectedCount = getSelectedBatchCount();
-      if (currentScope === 'batch') {
-        const verb = fmt === 'pdf' ? 'Export' : (fmt === 'both' ? 'Bundle' : 'Save');
-        btnText.textContent = `${verb} Selected (${selectedCount}) as ${fmt.toUpperCase()}`;
-        exportBtn.disabled = selectedCount === 0;
-      } else {
-        const verb = fmt === 'pdf' ? 'Export as PDF' : (fmt === 'both' ? 'Export Both (ZIP)' : 'Save as HTML');
-        btnText.textContent = `⚡ ${verb}`;
-        exportBtn.disabled = false;
-      }
-    }
-  }
-
-  // Format changes
-  [formatHtmlRadio, formatPdfRadio, formatBothRadio].forEach(radio => {
-    radio.addEventListener('change', () => {
-      localStorage.setItem('chatvault_format', getSelectedFormat());
-      updateUiLabels();
-    });
-  });
-
-  autoScrollToggle.addEventListener('change', () => {
-    localStorage.setItem('chatvault_autoscroll', autoScrollToggle.checked);
-    updateUiLabels();
-  });
-
-  downloadImagesToggle.addEventListener('change', () => {
-    localStorage.setItem('chatvault_images', downloadImagesToggle.checked);
-  });
-
-  // Scope Tab Handlers
-  tabScopeSingle.addEventListener('click', () => {
+  // Scope Tabs
+  tabScopeSingle?.addEventListener('click', () => {
     currentScope = 'single';
     tabScopeSingle.classList.add('active');
-    tabScopeBatch.classList.remove('active');
-    singleChatView.classList.remove('hidden');
-    batchChatView.classList.add('hidden');
-    updateUiLabels();
+    tabScopeBatch?.classList.remove('active');
+    singleChatView?.classList.remove('hidden');
+    batchChatView?.classList.add('hidden');
   });
 
-  tabScopeBatch.addEventListener('click', async () => {
+  tabScopeBatch?.addEventListener('click', () => {
     currentScope = 'batch';
     tabScopeBatch.classList.add('active');
-    tabScopeSingle.classList.remove('active');
-    batchChatView.classList.remove('hidden');
-    singleChatView.classList.add('hidden');
+    tabScopeSingle?.classList.remove('active');
+    singleChatView?.classList.add('hidden');
+    batchChatView?.classList.remove('hidden');
     if (discoveredConversations.length === 0) {
-      await scanAccessibleConversations();
+      loadBatchConversations();
     }
-    updateUiLabels();
   });
 
-  refreshConvosBtn.addEventListener('click', scanAccessibleConversations);
-
-  selectAllBtn.addEventListener('click', () => {
-    conversationListEl.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
-    updateBatchCountDisplay();
-    updateUiLabels();
-  });
-
-  deselectAllBtn.addEventListener('click', () => {
-    conversationListEl.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-    updateBatchCountDisplay();
-    updateUiLabels();
-  });
-
-  batchSearchInput.addEventListener('input', (e) => {
-    const q = e.target.value.toLowerCase().trim();
-    conversationListEl.querySelectorAll('.convo-item').forEach(item => {
-      const name = item.getAttribute('data-name') || '';
-      item.style.display = (!q || name.includes(q)) ? 'flex' : 'none';
-    });
-  });
-
-  openChatBtn.addEventListener('click', () => {
+  // Open Chat Button
+  openChatBtn?.addEventListener('click', () => {
     chrome.tabs.create({ url: 'https://chat.google.com' });
   });
 
-  resetBtn.addEventListener('click', () => {
-    resetUiToReady();
-    checkChatInfo();
-  });
-
-  // Diagnose button — runs structural DOM inspection in the active tab
-  if (diagnoseBtn) {
-    diagnoseBtn.addEventListener('click', async () => {
-      if (!activeTab) return;
-      try {
-        diagnoseBtn.disabled = true;
-        diagnoseBtn.textContent = '🔍 Diagnosing…';
-        await ensureContentScriptInjected(activeTab.id);
-        const info = await sendMessageToTab(activeTab.id, { action: 'DIAGNOSE' });
-        console.log('[ChatVault Diagnostics]', JSON.stringify(info, null, 2));
-        errorMessage.textContent = `Diagnostics logged to DevTools console. feedFound=${info.feedFound}, rows=${info.messageRowCount}. Open DevTools → Console to view full report.`;
-      } catch (e) {
-        console.error('[ChatVault Diagnose error]', e);
-        errorMessage.textContent = 'Diagnostics failed: ' + (e.message || e);
-      } finally {
-        diagnoseBtn.disabled = false;
-        diagnoseBtn.textContent = '🔍 Run Diagnostics';
-      }
-    });
-  }
-
-  cancelBtn.addEventListener('click', async () => {
-    if (!isExporting || !activeTab) return;
-    try {
-      cancelBtn.disabled = true;
-      cancelBtn.textContent = 'Stopping...';
-      await sendMessageToTab(activeTab.id, { action: 'CANCEL_EXPORT' });
-    } catch (e) {
-      console.warn('Cancel signal failed:', e);
-    }
-  });
-
-  // Verify Active Tab
+  // Check Active Tab
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    activeTab = tab;
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTab = tabs[0];
 
-    if (!tab || !tab.url || !isGoogleChatUrl(tab.url)) {
-      showWrongTabUi();
+    const url = activeTab?.url || '';
+    const isGoogleChat = url.includes('chat.google.com') || (url.includes('mail.google.com') && url.includes('chat'));
+
+    if (!isGoogleChat) {
+      wrongTabView?.classList.remove('hidden');
+      mainContent?.classList.add('hidden');
+      statusPill.textContent = 'Disconnected';
+      statusPill.style.background = '#fef2f2';
+      statusPill.style.color = '#dc2626';
       return;
     }
 
-    showChatDetectedUi();
-    await ensureContentScriptInjected(tab.id);
-    await checkChatInfo();
-    updateUiLabels();
+    wrongTabView?.classList.add('hidden');
+    mainContent?.classList.remove('hidden');
+    statusPill.textContent = 'Connected';
+
+    // Scan Live Info
+    scanConversationInfo();
   } catch (err) {
-    console.error('Init error:', err);
-    showError('Unable to inspect active tab: ' + (err.message || 'Unknown error'));
+    console.error('Initialization error:', err);
   }
 
-  function isGoogleChatUrl(url) {
-    if (!url) return false;
-    return (
-      url.startsWith('https://chat.google.com') ||
-      url.startsWith('https://mail.google.com')
-    );
-  }
+  // Scan Active Conversation Info
+  function scanConversationInfo() {
+    if (!activeTab?.id) return;
 
-  function showWrongTabUi() {
-    wrongTabView.classList.remove('hidden');
-    mainContent.classList.add('hidden');
-  }
-
-  function showChatDetectedUi() {
-    wrongTabView.classList.add('hidden');
-    mainContent.classList.remove('hidden');
-  }
-
-  async function ensureContentScriptInjected(tabId) {
-    try {
-      const res = await sendMessageToTab(tabId, { action: 'PING' });
-      if (res && res.status === 'PONG') return;
-    } catch (e) {
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tabId },
-          files: ['jszip.min.js', 'jspdf.umd.min.js', 'content.js']
-        });
-      } catch (injectErr) {
-        console.error('Script injection failed:', injectErr);
-        throw new Error('Failed to load exporter into Google Chat. Please refresh the page.');
+    chrome.tabs.sendMessage(activeTab.id, { action: 'GET_CHAT_INFO' }, (response) => {
+      if (chrome.runtime.lastError || !response) {
+        conversationNameEl.textContent = 'Active Google Chat';
+        exportStatusBadge.textContent = 'Ready to export';
+        return;
       }
-    }
-  }
 
-  async function checkChatInfo() {
-    if (!activeTab) return;
-    try {
-      const info = await sendMessageToTab(activeTab.id, { action: 'GET_CHAT_INFO' });
-      if (info && info.title) {
-        conversationNameEl.textContent = info.title;
-        conversationMetaEl.textContent = `${info.visibleCount || 0} messages loaded in view`;
-      } else {
-        conversationNameEl.textContent = 'Active Chat Room';
-        conversationMetaEl.textContent = 'Ready to export';
-      }
-    } catch (err) {
-      conversationNameEl.textContent = 'Google Chat Window';
-      conversationMetaEl.textContent = 'Ready to scan active conversation';
-    }
-  }
+      conversationNameEl.textContent = response.name || response.title || 'Google Chat Space';
+      conversationTypeBadge.textContent = response.type || 'Space';
+      exportStatusBadge.textContent = 'Ready to export';
 
-  /**
-   * Scans Accessible Conversations from Google Chat Sidebar
-   */
-  async function scanAccessibleConversations() {
-    if (!activeTab) return;
-    try {
-      refreshConvosBtn.disabled = true;
-      refreshConvosBtn.textContent = 'Scanning...';
-      conversationListEl.innerHTML = '<div class="empty-list-placeholder">Discovering chats &amp; spaces...</div>';
-
-      const response = await sendMessageToTab(activeTab.id, { action: 'DISCOVER_CONVERSATIONS' });
-      discoveredConversations = (response && response.conversations) ? response.conversations : [];
-
-      if (discoveredConversations.length === 0) {
-        conversationListEl.innerHTML = '<div class="empty-list-placeholder">No sidebar conversations found. Open Google Chat with conversations visible.</div>';
-      } else {
-        renderConversationChecklist(discoveredConversations);
-      }
-      updateBatchCountDisplay();
-      updateUiLabels();
-    } catch (err) {
-      conversationListEl.innerHTML = `<div class="empty-list-placeholder text-red">Scan failed: ${err.message || 'Make sure chat is loaded'}</div>`;
-    } finally {
-      refreshConvosBtn.disabled = false;
-      refreshConvosBtn.textContent = '🔄 Scan';
-    }
-  }
-
-  function renderConversationChecklist(convos) {
-    conversationListEl.innerHTML = '';
-    convos.forEach((c, idx) => {
-      const item = document.createElement('label');
-      item.className = 'convo-item';
-      item.setAttribute('data-name', c.name.toLowerCase());
-
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = c.id || idx;
-      checkbox.checked = true; // Selected by default
-      checkbox.addEventListener('change', () => {
-        updateBatchCountDisplay();
-        updateUiLabels();
-      });
-
-      const badge = document.createElement('span');
-      badge.className = `convo-type-badge ${c.type === 'space' ? 'badge-space' : 'badge-dm'}`;
-      badge.textContent = c.type === 'space' ? 'Space' : 'DM';
-
-      const name = document.createElement('span');
-      name.className = 'convo-name';
-      name.textContent = c.name;
-
-      item.appendChild(checkbox);
-      item.appendChild(badge);
-      item.appendChild(name);
-      conversationListEl.appendChild(item);
+      if (metricDiscoveredMessages) metricDiscoveredMessages.textContent = response.totalMessages || response.visibleCount || 0;
+      if (metricDiscoveredThreads) metricDiscoveredThreads.textContent = response.totalThreads || 0;
+      if (metricDiscoveredReplies) metricDiscoveredReplies.textContent = response.totalReplies || 0;
+      if (metricDiscoveredAttachments) metricDiscoveredAttachments.textContent = response.totalAttachments || 0;
     });
   }
 
-  function getSelectedBatchCount() {
-    return conversationListEl.querySelectorAll('input[type="checkbox"]:checked').length;
+  // Batch Conversation Discovery
+  function loadBatchConversations() {
+    if (!activeTab?.id) return;
+    refreshConvosBtn.textContent = '⏳ Scanning...';
+
+    chrome.tabs.sendMessage(activeTab.id, { action: 'DISCOVER_CONVERSATIONS' }, (response) => {
+      refreshConvosBtn.textContent = '🔄 Scan';
+      if (response && response.conversations) {
+        discoveredConversations = response.conversations;
+        renderBatchList(discoveredConversations);
+      }
+    });
   }
 
-  function updateBatchCountDisplay() {
-    const selected = getSelectedBatchCount();
-    const total = conversationListEl.querySelectorAll('input[type="checkbox"]').length;
-    batchSelectionCountEl.textContent = `${selected} of ${total} selected`;
-  }
+  refreshConvosBtn?.addEventListener('click', loadBatchConversations);
 
-  /**
-   * Main Export Trigger
-   */
-  exportBtn.addEventListener('click', async () => {
-    if (isExporting || !activeTab) return;
+  function renderBatchList(items) {
+    if (!conversationListEl) return;
+    conversationListEl.innerHTML = '';
 
-    try {
-      errorCard.classList.add('hidden');
-      successCard.classList.add('hidden');
-      resetBtn.classList.add('hidden');
-
-      isExporting = true;
-      exportBtn.disabled = true;
-      exportBtn.classList.add('hidden');
-      cancelBtn.classList.remove('hidden');
-      cancelBtn.disabled = false;
-      cancelBtn.textContent = '🛑 Cancel Export';
-
-      const format = getSelectedFormat();
-      const isBatch = currentScope === 'batch';
-
-      // Gather targets if batch mode
-      let targetIds = [];
-      if (isBatch) {
-        const checkedBoxes = Array.from(conversationListEl.querySelectorAll('input[type="checkbox"]:checked'));
-        targetIds = checkedBoxes.map(cb => cb.value);
-        if (targetIds.length === 0) {
-          throw new Error('Please select at least one conversation to export.');
-        }
-      }
-
-      progressCard.classList.remove('hidden');
-      progressTargetText.textContent = isBatch
-        ? `Batch Export: ${targetIds.length} Conversations`
-        : `Exporting: ${conversationNameEl.textContent || 'Current Chat'}`;
-
-      updateProgress({
-        phase: 'PREPARING',
-        message: 'Initializing ChatVault engine...',
-        percent: 5,
-        detail: 'Connecting to DOM...',
-        discovered: 0,
-        processed: 0,
-        skipped: 0,
-        failed: 0
-      });
-
-      startTimer();
-      await ensureContentScriptInjected(activeTab.id);
-
-      const response = await sendMessageToTab(activeTab.id, {
-        action: 'START_EXPORT',
-        options: {
-          scope: currentScope,
-          format: format,
-          batchIds: targetIds,
-          autoScroll: autoScrollToggle.checked,
-          downloadImages: downloadImagesToggle.checked,
-          maxScrollAttempts: 25
-        }
-      });
-
-      if (response && response.error) {
-        throw new Error(response.error);
-      }
-    } catch (err) {
-      console.error('Export failed to start:', err);
-      showError(err.message || 'Failed to trigger export. Try refreshing Google Chat.');
-      resetExportButton();
-      stopTimer();
+    if (items.length === 0) {
+      conversationListEl.innerHTML = '<div class="empty-list-placeholder">No conversations found in sidebar.</div>';
+      return;
     }
+
+    items.forEach((c, idx) => {
+      const itemEl = document.createElement('label');
+      itemEl.className = 'conversation-item';
+      itemEl.innerHTML = `
+        <input type="checkbox" class="convo-checkbox" data-index="${idx}" ${idx < 5 ? 'checked' : ''} />
+        <span class="convo-badge ${c.type === 'SPACE' ? 'badge-space' : 'badge-dm'}">${c.type === 'SPACE' ? 'Space' : 'DM'}</span>
+        <span class="convo-title" title="${c.name}">${c.name}</span>
+      `;
+      conversationListEl.appendChild(itemEl);
+    });
+
+    updateBatchCount();
+  }
+
+  function updateBatchCount() {
+    const checked = conversationListEl?.querySelectorAll('.convo-checkbox:checked').length || 0;
+    const total = discoveredConversations.length;
+    if (batchSelectionCountEl) {
+      batchSelectionCountEl.textContent = `${checked} of ${total} selected`;
+    }
+  }
+
+  conversationListEl?.addEventListener('change', updateBatchCount);
+
+  selectAllBtn?.addEventListener('click', () => {
+    conversationListEl?.querySelectorAll('.convo-checkbox').forEach(cb => cb.checked = true);
+    updateBatchCount();
   });
 
-  // Listen for real-time progress & completion
-  chrome.runtime.onMessage.addListener((message, sender) => {
-    if (sender.tab && activeTab && sender.tab.id !== activeTab.id) return;
-
-    if (message.type === 'STATUS_UPDATE') {
-      updateProgress(message.data);
-    } else if (message.type === 'EXPORT_COMPLETE') {
-      handleExportComplete(message.data);
-    } else if (message.type === 'EXPORT_ERROR') {
-      showError(message.data?.error || 'An error occurred during extraction.');
-      resetExportButton();
-      stopTimer();
-    } else if (message.type === 'EXPORT_CANCELLED') {
-      handleExportCancelled(message.data);
-    }
+  deselectAllBtn?.addEventListener('click', () => {
+    conversationListEl?.querySelectorAll('.convo-checkbox').forEach(cb => cb.checked = false);
+    updateBatchCount();
   });
 
-  function updateProgress(data) {
-    if (!data) return;
+  // Start Export Handler
+  exportBtn?.addEventListener('click', async () => {
+    if (isExporting) return;
+    isExporting = true;
 
-    if (data.target) progressTargetText.textContent = data.target;
-    if (data.message) progressPhaseText.textContent = data.message;
-    if (typeof data.percent === 'number') {
-      const pct = Math.min(100, Math.max(0, Math.round(data.percent)));
-      progressPercentText.textContent = `${pct}%`;
-      progressBarFill.style.width = `${pct}%`;
-    }
-    if (data.detail) progressDetailText.textContent = data.detail;
+    const format = getSelectedFormat();
+    const retrieveHistory = autoScrollToggle?.checked ?? true;
+    const downloadMedia = downloadImagesToggle?.checked ?? true;
 
-    if (typeof data.discovered === 'number') metricDiscovered.textContent = data.discovered;
-    if (typeof data.processed === 'number') metricProcessed.textContent = data.processed;
-    if (typeof data.skipped === 'number') metricSkipped.textContent = data.skipped;
-    if (typeof data.failed === 'number') metricFailed.textContent = data.failed;
-  }
+    // UI Updates
+    exportBtn.classList.add('hidden');
+    cancelBtn.classList.remove('hidden');
+    resetBtn.classList.add('hidden');
+    progressCard.classList.remove('hidden');
+    successCard.classList.add('hidden');
+    errorCard.classList.add('hidden');
 
-  function handleExportComplete(data) {
-    stopTimer();
-    isExporting = false;
+    progressPhaseText.textContent = 'Scanning conversation...';
+    exportStatusBadge.textContent = 'Scanning conversation';
+    progressPercentText.textContent = '0%';
+    progressBarFill.style.width = '0%';
 
-    progressCard.classList.add('hidden');
-    cancelBtn.classList.add('hidden');
-    successCard.classList.remove('hidden');
-    resetBtn.classList.remove('hidden');
+    // Start Timer
+    startTime = Date.now();
+    timerInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const s = String(elapsed % 60).padStart(2, '0');
+      if (metricTime) metricTime.textContent = `${m}:${s}`;
+    }, 1000);
 
-    const isPartial = (data.failedCount > 0 || data.skippedCount > 0);
-    successHeadline.textContent = isPartial ? 'Export Finished (With Notices)' : 'Export Complete!';
-    successFilename.textContent = data.filename || 'ChatVault_Export.zip';
+    const exportOptions = {
+      format,
+      retrieveHistory,
+      downloadMedia,
+      scope: currentScope,
+      selectedConversations: currentScope === 'batch'
+        ? Array.from(conversationListEl.querySelectorAll('.convo-checkbox:checked')).map(cb => discoveredConversations[parseInt(cb.dataset.index, 10)])
+        : null
+    };
 
-    successStatsBox.innerHTML = `
-      <div><strong>Conversations Exported:</strong> ${data.convoCount || 1}</div>
-      <div><strong>Messages Processed:</strong> ${data.processedCount || data.messageCount || 0}</div>
-      <div><strong>Attachments Included:</strong> ${data.imageCount || 0}</div>
-      ${data.skippedCount ? `<div class="text-amber"><strong>Items Skipped:</strong> ${data.skippedCount}</div>` : ''}
-      ${data.failedCount ? `<div class="text-red"><strong>Failures:</strong> ${data.failedCount}</div>` : ''}
-    `;
+    chrome.tabs.sendMessage(activeTab.id, { action: 'START_EXPORT', options: exportOptions }, (response) => {
+      clearInterval(timerInterval);
+      isExporting = false;
 
-    // Dynamic bundle pill badges based on format
-    const fmt = data.format || getSelectedFormat();
-    if (fmt === 'pdf') {
-      successBundlePills.innerHTML = '<span class="bundle-pill">PDF Document</span><span class="bundle-pill">Print-Ready</span>';
-    } else if (fmt === 'both') {
-      successBundlePills.innerHTML = '<span class="bundle-pill">HTML + PDF</span><span class="bundle-pill">ZIP Bundle</span><span class="bundle-pill">CSV + JSON</span>';
-    } else {
-      successBundlePills.innerHTML = '<span class="bundle-pill">Standalone HTML</span><span class="bundle-pill">Native Google Chat UI</span>';
-    }
+      exportBtn.classList.remove('hidden');
+      cancelBtn.classList.add('hidden');
+      resetBtn.classList.remove('hidden');
 
-    resetExportButton();
-  }
+      if (chrome.runtime.lastError) {
+        showError(chrome.runtime.lastError.message);
+        exportStatusBadge.textContent = 'Export incomplete';
+        return;
+      }
 
-  function handleExportCancelled(data) {
-    stopTimer();
-    isExporting = false;
-    progressCard.classList.add('hidden');
-    cancelBtn.classList.add('hidden');
-    showError(data?.message || 'Export was safely cancelled by user.');
-    resetExportButton();
-  }
+      if (response && response.cancelled) {
+        progressPhaseText.textContent = 'Export cancelled';
+        exportStatusBadge.textContent = 'Export cancelled';
+        return;
+      }
 
-  function showError(msg) {
-    errorCard.classList.remove('hidden');
-    errorMessage.textContent = msg;
-    progressCard.classList.add('hidden');
-    cancelBtn.classList.add('hidden');
-  }
+      if (response && response.success) {
+        showSuccess(response.result || {});
+        exportStatusBadge.textContent = 'Export completed';
+      } else {
+        showError(response?.error || 'Extraction failed.');
+        exportStatusBadge.textContent = 'Export incomplete';
+      }
+    });
+  });
 
-  function resetExportButton() {
-    isExporting = false;
-    exportBtn.disabled = false;
-    exportBtn.classList.remove('hidden');
-    cancelBtn.classList.add('hidden');
-    btnSpinner.classList.add('hidden');
-    btnIcon.classList.remove('hidden');
-    updateUiLabels();
-  }
+  // Cancel Handler
+  cancelBtn?.addEventListener('click', () => {
+    if (!activeTab?.id) return;
+    chrome.tabs.sendMessage(activeTab.id, { action: 'CANCEL_EXPORT' }, () => {
+      progressPhaseText.textContent = 'Cancelling export...';
+      exportStatusBadge.textContent = 'Cancelling...';
+    });
+  });
 
-  function resetUiToReady() {
-    isExporting = false;
-    resetExportButton();
+  // Reset Handler
+  resetBtn?.addEventListener('click', () => {
     progressCard.classList.add('hidden');
     successCard.classList.add('hidden');
     errorCard.classList.add('hidden');
     resetBtn.classList.add('hidden');
+    exportStatusBadge.textContent = 'Ready to export';
+    scanConversationInfo();
+  });
 
-    metricDiscovered.textContent = '0';
-    metricProcessed.textContent = '0';
-    metricSkipped.textContent = '0';
-    metricFailed.textContent = '0';
-    metricTime.textContent = '00:00';
-    progressBarFill.style.width = '0%';
-    progressPercentText.textContent = '0%';
-    stopTimer();
-    updateUiLabels();
+  // Progress Message Listener from Content Script
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === 'EXPORT_PROGRESS') {
+      const data = msg.data || {};
+      if (data.phase) {
+        progressPhaseText.textContent = data.phase;
+        exportStatusBadge.textContent = data.phase;
+      }
+      if (data.detail && progressDetailText) progressDetailText.textContent = data.detail;
+      if (data.percent !== undefined) {
+        progressPercentText.textContent = `${data.percent}%`;
+        progressBarFill.style.width = `${data.percent}%`;
+      }
+      if (data.messages !== undefined && metricProcessedMessages) metricProcessedMessages.textContent = data.messages;
+      if (data.threads !== undefined && metricProcessedThreads) metricProcessedThreads.textContent = data.threads;
+      if (data.replies !== undefined && metricProcessedReplies) metricProcessedReplies.textContent = data.replies;
+      if (data.attachments !== undefined && metricProcessedAttachments) metricProcessedAttachments.textContent = data.attachments;
+    }
+  });
+
+  function showSuccess(result) {
+    progressCard.classList.add('hidden');
+    successCard.classList.remove('hidden');
+    successFilename.textContent = result.filename || 'Google_Chat_Export';
+
+    if (successStatsBox) {
+      successStatsBox.innerHTML = `
+        <div style="display:flex; justify-content:space-around; padding:8px 0; font-size:12px;">
+          <div><strong>${result.totalMessages || 0}</strong> Messages</div>
+          <div><strong>${result.totalThreads || 0}</strong> Threads</div>
+          <div><strong>${result.totalReplies || 0}</strong> Replies</div>
+          <div><strong>${result.totalAttachments || 0}</strong> Attachments</div>
+        </div>
+      `;
+    }
   }
 
-  function startTimer() {
-    startTime = Date.now();
-    metricTime.textContent = '00:00';
-    clearInterval(timerInterval);
-    timerInterval = setInterval(() => {
-      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-      const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
-      const s = String(elapsedSec % 60).padStart(2, '0');
-      metricTime.textContent = `${m}:${s}`;
-    }, 1000);
+  function showError(msg) {
+    progressCard.classList.add('hidden');
+    errorCard.classList.remove('hidden');
+    errorMessage.textContent = msg;
   }
 
-  function stopTimer() {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-
-  function sendMessageToTab(tabId, message) {
-    return new Promise((resolve, reject) => {
-      chrome.tabs.sendMessage(tabId, message, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve(response);
-        }
-      });
+  diagnoseBtn?.addEventListener('click', () => {
+    if (!activeTab?.id) return;
+    chrome.tabs.sendMessage(activeTab.id, { action: 'DIAGNOSE' }, (res) => {
+      console.log('[Google Chat Exporter Diagnostics]', res);
+      alert('Diagnostic details printed to DevTools console.');
     });
-  }
+  });
 });
