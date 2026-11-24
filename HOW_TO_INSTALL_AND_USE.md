@@ -1,39 +1,28 @@
 # How to Install and Use ChatVault
 
-A step-by-step user guide for installing, configuring, and exporting Google Chat conversations using **ChatVault (Google Chat Exporter & Archiver)**.
+A step-by-step user guide for installing, configuring, and exporting Google Chat conversations using **ChatVault (Google Chat PDF Exporter)**.
 
 ---
 
 ## 📑 Table of Contents
-- [How to Install and Use ChatVault](#how-to-install-and-use-chatvault)
-  - [📑 Table of Contents](#-table-of-contents)
-  - [1. Prerequisites](#1-prerequisites)
-  - [2. Quick Start (3-Step Setup)](#2-quick-start-3-step-setup)
-  - [3. Installation Guide](#3-installation-guide)
-    - [Google Chrome](#google-chrome)
-    - [Microsoft Edge](#microsoft-edge)
-    - [Brave Browser](#brave-browser)
-    - [Arc / Opera / Other Chromium Browsers](#arc--opera--other-chromium-browsers)
-  - [4. Pinning the Extension](#4-pinning-the-extension)
-  - [5. How to Export a Conversation](#5-how-to-export-a-conversation)
-    - [Step 1: Open Google Chat](#step-1-open-google-chat)
-    - [Step 2: Open the Target Conversation](#step-2-open-the-target-conversation)
-    - [Step 3: Open ChatVault](#step-3-open-chatvault)
-    - [Step 4: Configure Settings (Speed \& Media)](#step-4-configure-settings-speed--media)
-    - [Step 5: Click "⚡ Fast Export Current Chat"](#step-5-click--fast-export-current-chat)
-    - [Step 6: Instant Download](#step-6-instant-download)
-  - [6. Export Options Explained](#6-export-options-explained)
-  - [7. Opening \& Exploring Your Exported Files](#7-opening--exploring-your-exported-files)
-    - [A. Interactive Offline Viewer (`index.html`)](#a-interactive-offline-viewer-indexhtml)
-    - [B. Spreadsheet History (`chat_history.csv`)](#b-spreadsheet-history-chat_historycsv)
-    - [C. Developer Data (`chat_data.json`)](#c-developer-data-chat_datajson)
-    - [D. Attached Images (`images/`)](#d-attached-images-images)
-  - [8. Troubleshooting \& FAQs](#8-troubleshooting--faqs)
-    - [Q1: The popup says "Google Chat Not Detected" even though I have Google Chat open.](#q1-the-popup-says-google-chat-not-detected-even-though-i-have-google-chat-open)
-    - [Q2: I modified code or updated files. How do I reload the extension?](#q2-i-modified-code-or-updated-files-how-do-i-reload-the-extension)
-    - [Q3: Why did auto-scrolling stop before reaching the absolute beginning?](#q3-why-did-auto-scrolling-stop-before-reaching-the-absolute-beginning)
-    - [Q4: Does ChatVault send any of my chat data to a server?](#q4-does-chatvault-send-any-of-my-chat-data-to-a-server)
-  - [📞 Support \& Verification](#-support--verification)
+- [1. Prerequisites](#1-prerequisites)
+- [2. Quick Start (3-Step Setup)](#2-quick-start-3-step-setup)
+- [3. Installation Guide](#3-installation-guide)
+  - [Google Chrome](#google-chrome)
+  - [Microsoft Edge](#microsoft-edge)
+  - [Brave Browser](#brave-browser)
+  - [Arc / Opera / Other Chromium Browsers](#arc--opera--other-chromium-browsers)
+- [4. Pinning the Extension](#4-pinning-the-extension)
+- [5. How to Export Current Chat as PDF](#5-how-to-export-current-chat-as-pdf)
+  - [Step 1: Open Google Chat](#step-1-open-google-chat)
+  - [Step 2: Open Target Conversation](#step-2-open-target-conversation)
+  - [Step 3: Open ChatVault](#step-3-open-chatvault)
+  - [Step 4: Configure Options](#step-4-configure-options)
+  - [Step 5: Click "⚡ Export Chat as PDF"](#step-5-click--export-chat-as-pdf)
+  - [Step 6: Instant Download](#step-6-instant-download)
+- [6. Export Features & Options](#6-export-features--options)
+- [7. PDF Features & Layout](#7-pdf-features--layout)
+- [8. Troubleshooting & FAQs](#8-troubleshooting--faqs)
 
 ---
 
@@ -52,7 +41,7 @@ Before installing ChatVault:
   * [`popup.css`](popup.css)
   * [`popup.js`](popup.js)
   * [`content.js`](content.js)
-  * [`jszip.min.js`](jszip.min.js) *(already bundled in root directory)*
+  * [`jspdf.umd.min.js`](jspdf.umd.min.js) *(bundled locally for vector PDF generation)*
   * [`icons/`](icons/)
 
 ---
@@ -78,12 +67,9 @@ Once loaded, navigate to [chat.google.com](https://chat.google.com), open any co
    Developer mode  [  ●  ] (Enabled)
    ```
 4. In the top-left toolbar that appears, click the **Load unpacked** button.
-5. In the file explorer dialog, browse to and select the `google-chat-exporter` folder (the folder containing `manifest.json`):
-   ```
-   Path: e:\personal\google-chat-exporter
-   ```
+5. In the file explorer dialog, browse to and select the `google-chat-exporter` folder (the folder containing `manifest.json`).
 6. Click **Select Folder**.
-7. ChatVault will now appear as an active extension card with version `1.2.0`.
+7. ChatVault will now appear as an active extension card.
 8. Whenever you update code files, simply click the **Reload (🔄)** icon on the extension card in `chrome://extensions`.
 
 ---
@@ -120,127 +106,63 @@ Once loaded, navigate to [chat.google.com](https://chat.google.com), open any co
 To make exporting quick and accessible:
 
 1. Click the **Extensions puzzle icon** (`🧩`) in the top-right of your browser toolbar.
-2. Locate **ChatVault - Google Chat Exporter & Archiver** in the dropdown list.
+2. Locate **ChatVault - Google Chat PDF Exporter** in the dropdown list.
 3. Click the **Pin icon** (`📌`) next to it.
-4. The blue ChatVault shield/vault icon will now remain visible directly in your browser toolbar.
+4. The ChatVault icon will now remain visible directly in your browser toolbar.
 
 ---
 
-## 5. How to Export a Conversation
+## 5. How to Export Current Chat as PDF
 
-Follow these simple steps whenever you want to backup or archive a chat:
+Follow these simple steps whenever you want to export your current conversation to a print-ready PDF:
 
 ### Step 1: Open Google Chat
 Navigate to either:
 * **Standalone Google Chat**: [https://chat.google.com](https://chat.google.com)
 * **Gmail with Chat**: [https://mail.google.com/chat](https://mail.google.com/chat)
 
-### Step 2: Open the Target Conversation
+### Step 2: Open Target Conversation
 Click on the **Direct Message (DM)**, **Group Conversation**, or **Space** you want to export. Ensure the chat messages are visible on your screen.
 
 ### Step 3: Open ChatVault
-Click the **ChatVault icon** in your toolbar. A clean popup card will open:
-* It will display **Connected to Chat** with a glowing green status indicator.
-* It will show the detected name of your conversation (e.g. `Engineering Sprint`, `Project Alpha`, or your contact's name).
-* It will show how many messages are currently loaded in view.
+Click the **ChatVault icon** in your toolbar. The extension popup will display:
+* **Active Chat Connected** status with a pulsing indicator.
+* The detected name of the target conversation (e.g. contact name or space title).
+* The number of messages currently loaded in view.
 
-> [!NOTE]
-> If you click the icon while on a tab other than Google Chat, ChatVault displays a helpful notice with a one-click button: **Open Google Chat**.
+### Step 4: Configure Options
+* **Auto-scroll top to bottom**: Turn **ON** to have ChatVault sweep through older messages and hydrate lazy-loaded screenshots. Leave **OFF** for fast export of currently loaded messages.
+* **Include shared media**: Leave checked to embed shared screenshots and photos directly into the PDF document.
 
-### Step 4: Configure Format & Scroll Options
-1. **Choose Export Format**:
-   * **📄 Save as HTML (Recommended)**: Downloads a single, self-contained `.html` file styled **identically to native Google Chat**. All shared images are embedded directly as Base64 data URLs—no unzipping needed!
-   * **📦 ZIP Archive**: Bundles `index.html`, `chat_history.csv`, `chat_data.json`, and an `images/` directory.
-2. **Scroll Options**:
-   * **Auto-scroll top to bottom**: Turn this **ON** to have ChatVault scroll all the way up to load complete history, then smoothly sweep top-to-bottom so every virtualized message, avatar, and image is fully rendered. Keep **OFF** for fast instant exports of currently visible messages.
-3. **Include shared images**: Keep checked to download and embed all full-resolution attachments.
-
-### Step 5: Click "⚡ Save as HTML" (or "Export as ZIP")
-* ChatVault will immediately scan messages, fetch media in parallel chunks, and trigger an instant download.
-* Live status updates show:
-  * **Status**: *"Extracting messages and text..."*, *"Embedding images into HTML..."*, *"Finalizing..."*.
-  * **Progress Bar**: Smooth progress indicator from 0% to 100%.
-  * **Live Counters**: Real-time count of parsed messages, downloaded images, and elapsed time.
+### Step 5: Click "⚡ Export Chat as PDF"
+ChatVault will parse messages, embed media, format page layout, and trigger your download.
 
 ### Step 6: Instant Download
-As soon as processing finishes, your browser immediately downloads:
-* For HTML format: `[Conversation_Name]_Chat_[Date].html` *(Single 100% offline file!)*
-* For ZIP format: `[Conversation_Name]_ChatVault_[Date].zip`
+Your browser automatically downloads the finished vector PDF:
+`[Conversation_Name]_[Date].pdf`
 
 ---
 
-## 6. Export Options Explained
+## 6. Export Features & Options
 
 | Option | Default | Description |
 | :--- | :---: | :--- |
-| **Save as HTML** | **Selected** | Exports directly as a standalone `.html` file styled to look **just like native Google Chat** on screen. All shared media are embedded as Base64 data URLs. |
-| **ZIP Archive** | Optional | Exports as a structured `.zip` containing HTML viewer, CSV spreadsheet, JSON dump, and `images/` folder. |
-| **Auto-scroll top to bottom** | **OFF** | When enabled, scrolls up to the top to fetch history, then sweeps down to the bottom to hydrate all virtualized messages and image elements. |
-| **Include shared images** | **ON** | Fetches and embeds all shared photos in full resolution. Uses in-memory `<canvas>` fallbacks to bypass CORS boundaries. |
+| **Format** | **Vector PDF** | Print-ready, multi-page PDF formatted with header accents, timestamps, participants, and page numbers. |
+| **Target Scope** | **Current Chat** | Targets the active conversation currently open in Google Chat. |
+| **Auto-scroll top to bottom** | **OFF** | Sweeps top-to-bottom to render virtualized messages and hydrate lazy-loaded screenshots. |
+| **Include shared media** | **ON** | Fetches and embeds photos/screenshots cleanly scaled within PDF page boundaries. |
 
 ---
 
-## 7. Opening & Exploring Your Exported Files
+## 7. PDF Features & Layout
 
-### A. Standalone HTML File (`.html`)
-Simply double-click the downloaded `.html` file to view it in Chrome, Edge, Safari, or Firefox:
-* **Looks Just Like Native Google Chat**:
-  * Authentic Google Chat top bar, brand logo, and space/DM title.
-  * Message clustering: consecutive messages from the same sender are cleanly grouped without repeating avatars.
-  * Quoted reply cards with the Google blue vertical bar, author name, and snippet.
-  * User mentions highlighted in Google Chat blue badge style (`@user`).
-  * Centered date separator chips (`Today`, `Yesterday`, `October 28, 2026`).
-  * Reaction pill badges with emojis and counts (`👍 2`, `❤️ 1`).
-  * Embedded full-resolution images with click-to-enlarge lightbox modal.
-  * Built-in instant search bar to filter messages live.
-  * Dark / Light mode toggle.
-* **100% Self-Contained**: All images are embedded inside the single HTML file. No external folders, zero broken links, works completely offline.
-
-### B. ZIP Archive (If selected)
-Extract the downloaded `.zip` file to view:
-* `index.html` &mdash; Offline viewer.
-* `chat_history.csv` &mdash; Excel-compatible spreadsheet with UTF-8 BOM.
-* `chat_data.json` &mdash; Raw JSON dump for developers.
-* `images/` &mdash; Full-resolution image files.
-  1. `Timestamp`: Exact date and time of the message.
-  2. `Sender`: Sender display name.
-  3. `In Reply To`: Sender and snippet of any quoted parent message.
-  4. `Message Text`: Full message body preserving intentional line breaks.
-  5. `Attached Images`: Local file paths (e.g. `images/img_1.png`).
-
-### C. Developer Data (`chat_data.json`)
-Open `chat_data.json` in VS Code or parse it with Python / Node.js:
-```json
-{
-  "metadata": {
-    "title": "Core Engineering",
-    "exportedAt": "2026-10-29T11:45:00.000Z",
-    "generator": "ChatVault Chrome Extension v1.0",
-    "messageCount": 142,
-    "imageCount": 8,
-    "participants": ["Alice", "Bob", "Charlie"]
-  },
-  "messages": [
-    {
-      "id": "spaces/.../messages/...",
-      "timestamp": "Oct 28, 2026, 3:15 PM",
-      "sender": "Alice",
-      "replyTo": {
-        "sender": "Bob",
-        "snippet": "Here is the release schedule."
-      },
-      "text": "Approved! Let's deploy tomorrow.",
-      "images": ["images/img_1.png"],
-      "reactions": ["👍 2", "🚀 1"]
-    }
-  ]
-}
-```
-
-### D. Attached Images (`images/`)
-Every photo, diagram, and screenshot shared in the chat is saved into the `images/` directory:
-* Automatically filtered to remove user profile avatars and emojis.
-* Stored with original dimensions and correct extensions (`.png`, `.jpg`, `.webp`, `.gif`).
+The exported PDF includes:
+* **Branded Header**: Google Chat green accent bar with conversation title, export timestamp, message count, media count, and participant names.
+* **Date Headers**: Centered date separator chips marking conversation day transitions.
+* **Message Layout**: Sender avatar indicators, bold participant names, exact timestamps, and clean word-wrapped message bodies.
+* **Quoted Replies**: Visual reply blocks displaying quoted snippet and parent author.
+* **Shared Attachments**: Embedded full-resolution images and links to shared Drive files.
+* **Page Numbers**: Automatic footer numbering (`Page X of Y`).
 
 ---
 
@@ -256,28 +178,9 @@ Every photo, diagram, and screenshot shared in the chat is saved into the `image
 **Solution**:
 1. Go to `chrome://extensions`.
 2. Locate the **ChatVault** card.
-3. Click the circular **Reload** icon (`🔄`) in the bottom-right corner of the card.
+3. Click the circular **Reload** icon (`🔄`) on the card.
 4. Refresh your Google Chat browser tab.
 
-### Q3: Why did auto-scrolling stop before reaching the absolute beginning?
-**Solution**:
-* Google Chat dynamically renders messages as you scroll. If you have years of messages (10,000+ messages), the safety limit is set to 40-45 continuous scroll batches to prevent browser memory exhaustion.
-* If you need an earlier period, manually scroll up in Google Chat to load that section, and ChatVault will scrape everything currently in view.
-
-### Q4: Does ChatVault send any of my chat data to a server?
+### Q3: Does ChatVault send any of my chat data to a server?
 **Answer**:
-* **No, absolutely never.** ChatVault is 100% client-side. All scanning, media fetching, ZIP creation, and downloading take place directly inside your local browser sandbox. No external analytics, telemetry, or remote servers are involved.
-
----
-
-## 📞 Support & Verification
-
-To verify that all extension components are loaded properly, check that your folder contains:
-* [`manifest.json`](manifest.json) &mdash; Configuration (MV3)
-* [`popup.html`](popup.html) &mdash; Popup UI
-* [`popup.css`](popup.css) &mdash; UI Styling
-* [`popup.js`](popup.js) &mdash; Controller logic
-* [`content.js`](content.js) &mdash; Scraper engine
-* [`jszip.min.js`](jszip.min.js) &mdash; ZIP compressor
-* [`icons/`](icons/) &mdash; Extension icons
-
+* **No, absolutely never.** ChatVault runs 100% client-side inside your browser sandbox. No external servers, analytics, or telemetry are used.

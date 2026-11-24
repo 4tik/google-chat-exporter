@@ -7,6 +7,8 @@
 
 'use strict';
 
+'use strict';
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
   const wrongTabView = document.getElementById('wrong-tab-view');
