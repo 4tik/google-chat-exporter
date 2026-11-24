@@ -1,11 +1,9 @@
 /**
  * @file popup.js
  * @description Google Chat Exporter popup interface controller.
- * Displays conversation context, live metrics (messages, threads, replies, attachments),
- * export format controls (HTML, PDF, JSON, ZIP), real-time progress, and cancellation.
+ * Configured to always export the entire chat history to a native Google Chat replica HTML
+ * with embedded offline high-resolution media and strict thread preservation.
  */
-
-'use strict';
 
 'use strict';
 
@@ -27,40 +25,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const metricDiscoveredReplies = document.getElementById('metric-discovered-replies');
   const metricDiscoveredAttachments = document.getElementById('metric-discovered-attachments');
 
-  // Scope Tabs
-  const tabScopeSingle = document.getElementById('tab-scope-single');
-  const tabScopeBatch = document.getElementById('tab-scope-batch');
-  const singleChatView = document.getElementById('single-chat-view');
-  const batchChatView = document.getElementById('batch-chat-view');
-
-  // Batch Selection Elements
-  const refreshConvosBtn = document.getElementById('refresh-convos-btn');
-  const batchSearchInput = document.getElementById('batch-search-input');
-  const selectAllBtn = document.getElementById('select-all-btn');
-  const deselectAllBtn = document.getElementById('deselect-all-btn');
-  const conversationListEl = document.getElementById('conversation-list');
-  const batchSelectionCountEl = document.getElementById('batch-selection-count');
-
-  // Format Radios
-  const formatHtmlRadio = document.getElementById('format-html');
-  const formatPdfRadio = document.getElementById('format-pdf');
-  const formatJsonRadio = document.getElementById('format-json');
-  const formatZipRadio = document.getElementById('format-zip');
-
-  const formatLabels = {
-    html: document.getElementById('format-html-label'),
-    pdf: document.getElementById('format-pdf-label'),
-    json: document.getElementById('format-json-label'),
-    zip: document.getElementById('format-zip-label')
-  };
-
-  // Options
-  const autoScrollToggle = document.getElementById('auto-scroll-toggle');
-  const downloadImagesToggle = document.getElementById('download-images-toggle');
-
   // Progress Card Elements
   const progressCard = document.getElementById('progress-card');
-  const progressTargetText = document.getElementById('progress-target-text');
   const progressPhaseText = document.getElementById('progress-phase-text');
   const progressPercentText = document.getElementById('progress-percent-text');
   const progressBarFill = document.getElementById('progress-bar-fill');
@@ -80,74 +46,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const errorCard = document.getElementById('error-card');
   const errorMessage = document.getElementById('error-message');
-  const diagnoseBtn = document.getElementById('diagnose-btn');
 
   // Action Buttons
   const exportBtn = document.getElementById('export-btn');
   const cancelBtn = document.getElementById('cancel-btn');
   const resetBtn = document.getElementById('reset-btn');
-  const btnSpinner = document.getElementById('btn-spinner');
-  const btnIcon = document.getElementById('btn-icon');
-  const btnText = document.getElementById('btn-text');
 
   let activeTab = null;
   let timerInterval = null;
   let startTime = null;
   let isExporting = false;
-  let currentScope = 'single';
-  let discoveredConversations = [];
-
-  // Format Selection Update
-  function updateFormatUI(format) {
-    Object.keys(formatLabels).forEach(key => {
-      if (formatLabels[key]) {
-        formatLabels[key].classList.toggle('active', key === format);
-      }
-    });
-
-    const formatLabelsMap = {
-      html: 'Save as HTML',
-      pdf: 'Save as PDF',
-      json: 'Save as JSON',
-      zip: 'Save as ZIP'
-    };
-    btnText.textContent = formatLabelsMap[format] || 'Start Export';
-  }
-
-  [formatHtmlRadio, formatPdfRadio, formatJsonRadio, formatZipRadio].forEach(radio => {
-    if (radio) {
-      radio.addEventListener('change', () => {
-        if (radio.checked) updateFormatUI(radio.value);
-      });
-    }
-  });
-
-  function getSelectedFormat() {
-    if (formatPdfRadio?.checked) return 'pdf';
-    if (formatJsonRadio?.checked) return 'json';
-    if (formatZipRadio?.checked) return 'zip';
-    return 'html';
-  }
-
-  // Scope Tabs
-  tabScopeSingle?.addEventListener('click', () => {
-    currentScope = 'single';
-    tabScopeSingle.classList.add('active');
-    tabScopeBatch?.classList.remove('active');
-    singleChatView?.classList.remove('hidden');
-    batchChatView?.classList.add('hidden');
-  });
-
-  tabScopeBatch?.addEventListener('click', () => {
-    currentScope = 'batch';
-    tabScopeBatch.classList.add('active');
-    tabScopeSingle?.classList.remove('active');
-    singleChatView?.classList.add('hidden');
-    batchChatView?.classList.remove('hidden');
-    if (discoveredConversations.length === 0) {
-      loadBatchConversations();
-    }
-  });
 
   // Open Chat Button
   openChatBtn?.addEventListener('click', () => {
@@ -192,84 +100,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      conversationNameEl.textContent = response.name || response.title || 'Google Chat Space';
+      conversationNameEl.textContent = response.name || 'Google Chat Conversation';
       conversationTypeBadge.textContent = response.type || 'Space';
       exportStatusBadge.textContent = 'Ready to export';
 
-      if (metricDiscoveredMessages) metricDiscoveredMessages.textContent = response.totalMessages || response.visibleCount || 0;
+      if (metricDiscoveredMessages) metricDiscoveredMessages.textContent = response.totalMessages || 0;
       if (metricDiscoveredThreads) metricDiscoveredThreads.textContent = response.totalThreads || 0;
       if (metricDiscoveredReplies) metricDiscoveredReplies.textContent = response.totalReplies || 0;
       if (metricDiscoveredAttachments) metricDiscoveredAttachments.textContent = response.totalAttachments || 0;
     });
   }
 
-  // Batch Conversation Discovery
-  function loadBatchConversations() {
-    if (!activeTab?.id) return;
-    refreshConvosBtn.textContent = '⏳ Scanning...';
-
-    chrome.tabs.sendMessage(activeTab.id, { action: 'DISCOVER_CONVERSATIONS' }, (response) => {
-      refreshConvosBtn.textContent = '🔄 Scan';
-      if (response && response.conversations) {
-        discoveredConversations = response.conversations;
-        renderBatchList(discoveredConversations);
-      }
-    });
-  }
-
-  refreshConvosBtn?.addEventListener('click', loadBatchConversations);
-
-  function renderBatchList(items) {
-    if (!conversationListEl) return;
-    conversationListEl.innerHTML = '';
-
-    if (items.length === 0) {
-      conversationListEl.innerHTML = '<div class="empty-list-placeholder">No conversations found in sidebar.</div>';
-      return;
-    }
-
-    items.forEach((c, idx) => {
-      const itemEl = document.createElement('label');
-      itemEl.className = 'conversation-item';
-      itemEl.innerHTML = `
-        <input type="checkbox" class="convo-checkbox" data-index="${idx}" ${idx < 5 ? 'checked' : ''} />
-        <span class="convo-badge ${c.type === 'SPACE' ? 'badge-space' : 'badge-dm'}">${c.type === 'SPACE' ? 'Space' : 'DM'}</span>
-        <span class="convo-title" title="${c.name}">${c.name}</span>
-      `;
-      conversationListEl.appendChild(itemEl);
-    });
-
-    updateBatchCount();
-  }
-
-  function updateBatchCount() {
-    const checked = conversationListEl?.querySelectorAll('.convo-checkbox:checked').length || 0;
-    const total = discoveredConversations.length;
-    if (batchSelectionCountEl) {
-      batchSelectionCountEl.textContent = `${checked} of ${total} selected`;
-    }
-  }
-
-  conversationListEl?.addEventListener('change', updateBatchCount);
-
-  selectAllBtn?.addEventListener('click', () => {
-    conversationListEl?.querySelectorAll('.convo-checkbox').forEach(cb => cb.checked = true);
-    updateBatchCount();
-  });
-
-  deselectAllBtn?.addEventListener('click', () => {
-    conversationListEl?.querySelectorAll('.convo-checkbox').forEach(cb => cb.checked = false);
-    updateBatchCount();
-  });
-
-  // Start Export Handler
+  // Start Export Handler: ALWAYS WHOLE CHAT + HTML + MEDIA
   exportBtn?.addEventListener('click', async () => {
-    if (isExporting) return;
+    if (isExporting || !activeTab?.id) return;
     isExporting = true;
-
-    const format = getSelectedFormat();
-    const retrieveHistory = autoScrollToggle?.checked ?? true;
-    const downloadMedia = downloadImagesToggle?.checked ?? true;
 
     // UI Updates
     exportBtn.classList.add('hidden');
@@ -279,8 +124,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     successCard.classList.add('hidden');
     errorCard.classList.add('hidden');
 
-    progressPhaseText.textContent = 'Scanning conversation...';
-    exportStatusBadge.textContent = 'Scanning conversation';
+    progressPhaseText.textContent = 'Paginating whole chat history...';
+    exportStatusBadge.textContent = 'Paginating history...';
     progressPercentText.textContent = '0%';
     progressBarFill.style.width = '0%';
 
@@ -293,17 +138,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (metricTime) metricTime.textContent = `${m}:${s}`;
     }, 1000);
 
-    const exportOptions = {
-      format,
-      retrieveHistory,
-      downloadMedia,
-      scope: currentScope,
-      selectedConversations: currentScope === 'batch'
-        ? Array.from(conversationListEl.querySelectorAll('.convo-checkbox:checked')).map(cb => discoveredConversations[parseInt(cb.dataset.index, 10)])
-        : null
-    };
-
-    chrome.tabs.sendMessage(activeTab.id, { action: 'START_EXPORT', options: exportOptions }, (response) => {
+    // Trigger full export in content script
+    chrome.tabs.sendMessage(activeTab.id, { action: 'START_EXPORT' }, (response) => {
       clearInterval(timerInterval);
       isExporting = false;
 
@@ -352,7 +188,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     scanConversationInfo();
   });
 
-  // Progress Message Listener from Content Script
+  // Real-time Progress Listener from Content Script
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === 'EXPORT_PROGRESS') {
       const data = msg.data || {};
@@ -360,7 +196,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         progressPhaseText.textContent = data.phase;
         exportStatusBadge.textContent = data.phase;
       }
-      if (data.detail && progressDetailText) progressDetailText.textContent = data.detail;
       if (data.percent !== undefined) {
         progressPercentText.textContent = `${data.percent}%`;
         progressBarFill.style.width = `${data.percent}%`;
@@ -375,15 +210,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   function showSuccess(result) {
     progressCard.classList.add('hidden');
     successCard.classList.remove('hidden');
-    successFilename.textContent = result.filename || 'Google_Chat_Export';
+    successFilename.textContent = result.filename || 'GoogleChat_Export.html';
 
     if (successStatsBox) {
       successStatsBox.innerHTML = `
-        <div style="display:flex; justify-content:space-around; padding:8px 0; font-size:12px;">
+        <div style="display:flex; justify-content:space-around; padding:10px 0; font-size:12px; background:var(--bg-primary); border-radius:8px; margin-top:8px;">
           <div><strong>${result.totalMessages || 0}</strong> Messages</div>
           <div><strong>${result.totalThreads || 0}</strong> Threads</div>
           <div><strong>${result.totalReplies || 0}</strong> Replies</div>
-          <div><strong>${result.totalAttachments || 0}</strong> Attachments</div>
+          <div><strong>${result.totalAttachments || 0}</strong> Media</div>
         </div>
       `;
     }
@@ -394,12 +229,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     errorCard.classList.remove('hidden');
     errorMessage.textContent = msg;
   }
-
-  diagnoseBtn?.addEventListener('click', () => {
-    if (!activeTab?.id) return;
-    chrome.tabs.sendMessage(activeTab.id, { action: 'DIAGNOSE' }, (res) => {
-      console.log('[Google Chat Exporter Diagnostics]', res);
-      alert('Diagnostic details printed to DevTools console.');
-    });
-  });
 });

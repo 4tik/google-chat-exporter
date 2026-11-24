@@ -2,8 +2,16 @@
  * @file htmlExporter.js
  * @module HtmlExporter
  * @description Generates a standalone, fully-functional, responsive HTML file
- * inspired by Google Chat. Accurately renders parent messages, multiple independent threads,
- * replies, attachments, reactions, search, filtering, and dark/light themes.
+ * designed to look and feel EXACTLY like the native Google Chat web application.
+ * Features:
+ *  - Native Google Chat light & dark theme styling with Google Sans typography
+ *  - Centered date divider chips (e.g. "Tuesday, November 24, 2026")
+ *  - Full parent message cards with 38px avatars, bold senders, exact timestamps,
+ *    code blocks, blockquotes, styled @mentions, and reaction emoji chips
+ *  - Independent thread hierarchy: preserves 5+ threads under one parent message separately
+ *  - Embedded high-resolution Base64 screenshots & media attachments with interactive lightbox
+ *  - Real-time client-side search, sender filter, and thread collapse/expand controls
+ *  - 100% self-contained: works completely offline without internet or extension
  */
 
 'use strict';
@@ -28,15 +36,12 @@ function escapeHtml(str) {
  * @param {string|null} isoStr
  * @returns {string}
  */
-function formatTimestamp(isoStr) {
+function formatTime(isoStr) {
   if (!isoStr) return '';
   try {
     const d = new Date(isoStr);
     if (isNaN(d.getTime())) return isoStr;
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
+    return d.toLocaleTimeString(undefined, {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
@@ -46,19 +51,56 @@ function formatTimestamp(isoStr) {
   }
 }
 
+/**
+ * Formats an ISO timestamp into a date divider string.
+ * @param {string|null} isoStr
+ * @returns {string}
+ */
+function formatDateDivider(isoStr) {
+  if (!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * Deterministic color picker for avatar initials like Google Chat
+ */
+const AVATAR_COLORS = [
+  '#1a73e8', '#00897b', '#d93025', '#e37400',
+  '#8e24aa', '#3949ab', '#00838f', '#0b8043'
+];
+
+function getAvatarColor(name) {
+  let hash = 0;
+  for (let i = 0; i < (name || '').length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
 export class HtmlExporter {
   /**
-   * Generates a complete standalone HTML document string from a normalized conversation.
+   * Generates a complete standalone HTML document string identical to Google Chat.
    *
    * @param {Object} conversation - Normalized conversation object
-   * @param {Object} [metadata]    - Export metadata (conversation name, type, exportedAt)
+   * @param {Object} [metadata]    - Export metadata
    * @returns {string} Standalone HTML document string
    */
   static export(conversation, metadata = {}) {
     const convoName = metadata.name || conversation.name || 'Google Chat Conversation';
     const convoType = metadata.type || conversation.type || 'SPACE';
     const exportedAt = metadata.exportedAt || conversation.exportedAt || new Date().toISOString();
-    const formattedExportDate = formatTimestamp(exportedAt);
+    const formattedExportDate = new Date(exportedAt).toLocaleString();
 
     const messages = conversation.messages || [];
 
@@ -89,57 +131,86 @@ export class HtmlExporter {
       .map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`)
       .join('\n');
 
-    const messagesHtml = messages.map((msg, index) => this._renderParentMessage(msg, index + 1)).join('\n');
+    // Group messages with date dividers
+    let lastDateStr = '';
+    const renderedItems = [];
+
+    messages.forEach((msg, index) => {
+      const dateStr = formatDateDivider(msg.timestamp);
+      if (dateStr && dateStr !== lastDateStr) {
+        renderedItems.push(`
+          <div class="date-divider-row">
+            <span class="date-divider-pill">${escapeHtml(dateStr)}</span>
+          </div>
+        `);
+        lastDateStr = dateStr;
+      }
+      renderedItems.push(this._renderParentMessage(msg, index + 1));
+    });
+
+    const messagesHtml = renderedItems.join('\n');
 
     return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${escapeHtml(convoName)} - Google Chat Exporter</title>
+<title>${escapeHtml(convoName)} - Google Chat</title>
 <style>
+/* Native Google Chat Design System */
 :root {
-  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8f9fa;
+  --font-family: 'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  --bg-page: #f8fafd;
+  --bg-header: #ffffff;
+  --bg-chat-pane: #ffffff;
   --bg-hover: #f1f3f4;
-  --bg-parent: #ffffff;
-  --bg-thread: #f8fafc;
+  --bg-thread-card: #f8fafd;
   --bg-reply: #ffffff;
-  --border-color: #e2e8f0;
+  --border-color: #e0e2e6;
+  --border-subtle: #f1f3f4;
   --border-accent: #00897b;
-  --text-primary: #1f2937;
-  --text-secondary: #64748b;
-  --text-muted: #94a3b8;
-  --google-green: #00897b;
+  --text-primary: #1f1f1f;
+  --text-secondary: #444746;
+  --text-muted: #70757a;
   --google-blue: #1a73e8;
-  --badge-bg: #e6f4ea;
-  --badge-text: #137333;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --google-green: #00897b;
+  --chip-bg: #e6f4ea;
+  --chip-text: #137333;
+  --reaction-bg: #f1f3f4;
+  --reaction-border: #dadce0;
+  --mention-bg: #e8f0fe;
+  --mention-text: #174ea6;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --radius-avatar: 50%;
+  --radius-card: 16px;
+  --radius-thread: 12px;
+  --radius-pill: 20px;
 }
 
 [data-theme="dark"] {
-  --bg-primary: #111827;
-  --bg-secondary: #1f2937;
-  --bg-hover: #374151;
-  --bg-parent: #1f2937;
-  --bg-thread: #182234;
-  --bg-reply: #222f44;
-  --border-color: #374151;
+  --bg-page: #131314;
+  --bg-header: #1f1f1f;
+  --bg-chat-pane: #1e1f20;
+  --bg-hover: #282a2c;
+  --bg-thread-card: #18191a;
+  --bg-reply: #222325;
+  --border-color: #333537;
+  --border-subtle: #282a2c;
   --border-accent: #26a69a;
-  --text-primary: #f9fafb;
-  --text-secondary: #cbd5e1;
-  --text-muted: #64748b;
-  --google-green: #26a69a;
+  --text-primary: #e3e3e3;
+  --text-secondary: #c4c7c5;
+  --text-muted: #8e918f;
   --google-blue: #8ab4f8;
-  --badge-bg: #1e3a2f;
-  --badge-text: #a8dab5;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6);
+  --google-green: #26a69a;
+  --chip-bg: #1e3a2f;
+  --chip-text: #a8dab5;
+  --reaction-bg: #2d2f31;
+  --reaction-border: #444746;
+  --mention-bg: #283e58;
+  --mention-text: #d2e3fc;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -150,87 +221,104 @@ export class HtmlExporter {
 
 body {
   font-family: var(--font-family);
-  background-color: var(--bg-secondary);
+  background-color: var(--bg-page);
   color: var(--text-primary);
   line-height: 1.5;
-  padding: 24px 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* App Layout */
+.app-shell {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-.exporter-container {
-  max-width: 1000px;
-  margin: 0 auto;
-}
-
-/* Header */
-.exporter-header {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  margin-bottom: 20px;
+/* Header Bar - Native Google Chat Top Bar */
+.chat-app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   box-shadow: var(--shadow-sm);
 }
 
-.header-top {
+.header-main-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
+  align-items: center;
   flex-wrap: wrap;
   gap: 12px;
 }
 
-.brand-section {
+.header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
-.brand-icon {
-  width: 44px;
-  height: 44px;
-  background: linear-gradient(135deg, #00897b, #004d40);
-  border-radius: 12px;
+.chat-logo {
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #00897b;
   color: #fff;
-  font-weight: 700;
-  font-size: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 137, 123, 0.3);
 }
 
-.title-wrap h1 {
-  font-size: 22px;
-  font-weight: 700;
+.chat-logo svg {
+  width: 24px;
+  height: 24px;
+}
+
+.convo-title-group h1 {
+  font-size: 19px;
+  font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;
 }
 
-.title-wrap .convo-type-badge {
-  display: inline-block;
-  background: var(--badge-bg);
-  color: var(--badge-text);
+.convo-meta-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.type-badge {
+  background: var(--chip-bg);
+  color: var(--chip-text);
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
-  border-radius: 12px;
-  margin-top: 4px;
-  letter-spacing: 0.5px;
+  border-radius: var(--radius-pill);
 }
 
-.header-actions {
+.export-date-badge {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.header-controls {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.theme-btn, .action-btn {
-  background: var(--bg-secondary);
+.btn-ctrl {
+  background: var(--bg-hover);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -240,288 +328,347 @@ body {
   transition: all 0.2s ease;
 }
 
-.theme-btn:hover, .action-btn:hover {
-  background: var(--bg-hover);
+.btn-ctrl:hover {
+  filter: brightness(0.95);
 }
 
-/* Stats Row */
-.stats-row {
+/* Header Filter Toolbar */
+.filter-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-color);
-  font-size: 13px;
-}
-
-.stat-pill {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  gap: 6px;
-}
-
-.stat-pill .stat-label {
-  color: var(--text-secondary);
-}
-
-.stat-pill .stat-value {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-/* Control Bar */
-.control-bar {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 14px 18px;
-  margin-bottom: 20px;
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+  padding-top: 4px;
 }
 
-.search-filter-group {
-  display: flex;
+.search-box-wrap {
+  position: relative;
   flex: 1;
-  min-width: 280px;
-  gap: 10px;
+  max-width: 480px;
+  min-width: 240px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
 .search-input {
-  flex: 1;
-  background: var(--bg-secondary);
+  width: 100%;
+  background: var(--bg-hover);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 14px;
+  padding: 8px 14px 8px 36px;
+  border-radius: var(--radius-pill);
+  font-size: 13.5px;
   outline: none;
+  transition: border-color 0.2s;
 }
 
 .search-input:focus {
-  border-color: var(--google-green);
+  border-color: var(--google-blue);
 }
 
-.sender-select {
-  background: var(--bg-secondary);
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sender-dropdown {
+  background: var(--bg-hover);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  border-radius: 8px;
   font-size: 13px;
   outline: none;
   cursor: pointer;
 }
 
-.expand-controls {
-  display: flex;
-  gap: 8px;
+/* Chat Pane */
+.chat-container {
+  max-width: 1020px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 16px;
 }
 
-/* Message List */
-.messages-feed {
+.chat-card-pane {
+  background: var(--bg-chat-pane);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 20px;
 }
 
-/* Parent Message Container */
-.parent-message-card {
-  background: var(--bg-parent);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 18px 20px;
-  box-shadow: var(--shadow-sm);
+/* Date Divider */
+.date-divider-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
-  transition: border-color 0.2s;
+  margin: 24px 0 16px;
+  user-select: none;
+}
+
+.date-divider-row::before {
+  content: '';
+  position: absolute;
+  left: 32px;
+  right: 32px;
+  height: 1px;
+  background: var(--border-color);
+  z-index: 1;
+}
+
+.date-divider-pill {
+  position: relative;
+  z-index: 2;
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 14px;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* Parent Message Row */
+.parent-message-card {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background-color 0.15s ease;
 }
 
 .parent-message-card:hover {
-  border-color: #cbd5e1;
+  background-color: var(--bg-hover);
 }
 
-.message-header {
+.message-main-layout {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
+  align-items: flex-start;
+  gap: 16px;
 }
 
-.sender-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* Avatar */
+.avatar-col {
+  flex-shrink: 0;
 }
 
-.avatar {
+.avatar-circle {
   width: 38px;
   height: 38px;
-  border-radius: 50%;
-  background: var(--border-accent);
-  color: #fff;
+  border-radius: var(--radius-avatar);
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   overflow: hidden;
-  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-.avatar img {
+.avatar-circle img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.sender-meta {
-  display: flex;
-  flex-direction: column;
+/* Message Content Area */
+.message-content-col {
+  flex: 1;
+  min-width: 0;
 }
 
-.sender-name {
-  font-size: 15px;
+.message-meta-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.sender-display-name {
+  font-size: 14.5px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.timestamp {
+.message-time-text {
   font-size: 12px;
   color: var(--text-muted);
 }
 
-.edited-tag {
+.edited-indicator {
   font-size: 11px;
   color: var(--text-muted);
-  margin-left: 4px;
+  margin-left: 2px;
 }
 
-.message-body {
+/* Body Text */
+.message-body-text {
   font-size: 14.5px;
   color: var(--text-primary);
-  margin-bottom: 12px;
-  word-break: break-word;
+  line-height: 1.55;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.message-body a {
+.message-body-text a {
   color: var(--google-blue);
   text-decoration: none;
 }
 
-.message-body a:hover {
+.message-body-text a:hover {
   text-decoration: underline;
 }
 
+.message-body-text code {
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+}
+
+.message-body-text pre {
+  background: var(--bg-hover);
+  padding: 10px 14px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+/* Mentions */
+.mention-chip {
+  background: var(--mention-bg);
+  color: var(--mention-text);
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
 /* Reactions */
-.reactions-list {
+.reactions-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-  margin-bottom: 8px;
 }
 
 .reaction-chip {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
+  background: var(--reaction-bg);
+  border: 1px solid var(--reaction-border);
+  border-radius: var(--radius-pill);
   padding: 2px 8px;
-  font-size: 13px;
-  display: flex;
+  font-size: 12.5px;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
+  cursor: default;
 }
 
 .reaction-count {
-  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
+  font-size: 11.5px;
 }
 
 /* Attachments */
-.attachments-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
+.media-attachments-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-top: 10px;
-  margin-bottom: 10px;
 }
 
-.attachment-card {
-  background: var(--bg-secondary);
+.media-image-card {
+  max-width: 420px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 8px;
+  overflow: hidden;
+  background: #000;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.media-image-card:hover {
+  transform: scale(1.01);
+}
+
+.media-image-card img {
+  display: block;
+  width: 100%;
+  max-height: 380px;
+  object-fit: cover;
+}
+
+.file-attachment-card {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 10px 14px;
   text-decoration: none;
   color: var(--text-primary);
-  overflow: hidden;
+  max-width: 380px;
 }
 
-.attachment-thumb {
-  max-height: 140px;
-  width: 100%;
-  object-fit: cover;
-  border-radius: 4px;
-  cursor: pointer;
+.file-icon {
+  font-size: 22px;
 }
 
-.attachment-name {
-  font-size: 12px;
+.file-name {
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.attachment-type-badge {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-
 /* Threads Container */
-.threads-container {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--border-color);
+.threads-block-wrap {
+  margin-top: 14px;
+  padding-left: 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 /* Individual Thread Card */
 .thread-card {
-  background: var(--bg-thread);
+  background: var(--bg-thread-card);
   border: 1px solid var(--border-color);
   border-left: 4px solid var(--border-accent);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-thread);
   overflow: hidden;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease;
 }
 
 .thread-header {
-  padding: 10px 14px;
+  padding: 9px 14px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background: rgba(0, 137, 123, 0.05);
   cursor: pointer;
-  background: rgba(0, 137, 123, 0.04);
   user-select: none;
 }
 
 .thread-header:hover {
-  background: rgba(0, 137, 123, 0.08);
+  background: rgba(0, 137, 123, 0.09);
 }
 
 .thread-title-wrap {
@@ -531,16 +678,17 @@ body {
 }
 
 .thread-badge {
-  font-size: 11.5px;
-  font-weight: 600;
-  background: #00897b1f;
+  background: #00897b20;
   color: var(--google-green);
-  padding: 2px 8px;
-  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  letter-spacing: 0.3px;
 }
 
 .thread-title-text {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -548,26 +696,26 @@ body {
 .thread-meta-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.reply-count-pill {
+.reply-count-badge {
   font-size: 11.5px;
   font-weight: 600;
-  background: var(--bg-secondary);
+  background: var(--bg-reply);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
 }
 
-.thread-toggle-arrow {
-  font-size: 12px;
+.thread-chevron {
+  font-size: 11px;
   color: var(--text-muted);
   transition: transform 0.2s ease;
 }
 
-.thread-card.collapsed .thread-toggle-arrow {
+.thread-card.collapsed .thread-chevron {
   transform: rotate(-90deg);
 }
 
@@ -575,7 +723,7 @@ body {
   display: none;
 }
 
-/* Thread Replies */
+/* Thread Replies List */
 .thread-replies-list {
   padding: 12px 16px;
   display: flex;
@@ -586,37 +734,24 @@ body {
 .reply-row {
   background: var(--bg-reply);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
-}
-
-.reply-header {
+  border-radius: 8px;
+  padding: 10px 14px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.reply-sender-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .reply-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: #64748b;
-  color: #fff;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-avatar);
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  overflow: hidden;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .reply-avatar img {
@@ -625,24 +760,30 @@ body {
   object-fit: cover;
 }
 
+.reply-content-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
 .reply-sender-name {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.reply-body {
+.reply-body-text {
   font-size: 13.5px;
   color: var(--text-primary);
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: 48px 16px;
-  color: var(--text-secondary);
 }
 
 /* Lightbox Modal */
@@ -654,7 +795,7 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.9);
   align-items: center;
   justify-content: center;
 }
@@ -664,10 +805,10 @@ body {
 }
 
 .lightbox-img {
-  max-width: 90%;
-  max-height: 90%;
-  border-radius: 6px;
-  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
+  max-width: 92%;
+  max-height: 92%;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
 }
 
 /* Print Friendly */
@@ -675,12 +816,11 @@ body {
   body {
     background: #fff !important;
     color: #000 !important;
-    padding: 0 !important;
   }
-  .header-actions, .control-bar, .theme-btn, .expand-controls {
+  .chat-app-header, .filter-toolbar, .btn-ctrl, .header-controls {
     display: none !important;
   }
-  .parent-message-card, .thread-card, .reply-row {
+  .chat-card-pane, .parent-message-card, .thread-card, .reply-row {
     border: 1px solid #ccc !important;
     box-shadow: none !important;
     page-break-inside: avoid;
@@ -693,62 +833,66 @@ body {
 </head>
 <body>
 
-<div class="exporter-container">
-  <!-- Header -->
-  <header class="exporter-header">
-    <div class="header-top">
-      <div class="brand-section">
-        <div class="brand-icon">GC</div>
-        <div class="title-wrap">
+<div class="app-shell">
+  <!-- Google Chat Top App Bar -->
+  <header class="chat-app-header">
+    <div class="header-main-row">
+      <div class="header-left">
+        <div class="chat-logo" title="Google Chat">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/>
+            <path d="M7 9h10v2H7zm0-3h10v2H7z"/>
+          </svg>
+        </div>
+        <div class="convo-title-group">
           <h1>${escapeHtml(convoName)}</h1>
-          <span class="convo-type-badge">${escapeHtml(convoType)}</span>
+          <div class="convo-meta-badges">
+            <span class="type-badge">${escapeHtml(convoType)}</span>
+            <span class="export-date-badge">Exported: ${escapeHtml(formattedExportDate)} &bull; ${messages.length} messages &bull; ${totalThreads} threads &bull; ${totalReplies} replies</span>
+          </div>
         </div>
       </div>
-      <div class="header-actions">
-        <button class="theme-btn" id="theme-toggle" title="Toggle Dark/Light Mode">🌙 Theme</button>
-        <button class="action-btn" onclick="window.print()" title="Print to Paper or PDF">🖨️ Print</button>
+      <div class="header-controls">
+        <button class="btn-ctrl" id="theme-toggle" title="Toggle Theme">🌙 Theme</button>
+        <button class="btn-ctrl" onclick="window.print()" title="Print Conversation">🖨️ Print</button>
       </div>
     </div>
-    <div class="stats-row">
-      <div class="stat-pill"><span class="stat-label">Exported:</span> <span class="stat-value">${escapeHtml(formattedExportDate)}</span></div>
-      <div class="stat-pill"><span class="stat-label">Messages:</span> <span class="stat-value">${messages.length}</span></div>
-      <div class="stat-pill"><span class="stat-label">Threads:</span> <span class="stat-value">${totalThreads}</span></div>
-      <div class="stat-pill"><span class="stat-label">Replies:</span> <span class="stat-value">${totalReplies}</span></div>
-      <div class="stat-pill"><span class="stat-label">Attachments:</span> <span class="stat-value">${totalAttachments}</span></div>
+
+    <!-- Filter & Search Toolbar -->
+    <div class="filter-toolbar">
+      <div class="search-box-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" class="search-input" placeholder="Search parent messages and replies..." />
+      </div>
+      <div class="toolbar-right">
+        <select id="sender-filter" class="sender-dropdown">
+          <option value="">All Senders</option>
+          ${senderOptions}
+        </select>
+        <button class="btn-ctrl" id="expand-all-btn">Expand All Threads</button>
+        <button class="btn-ctrl" id="collapse-all-btn">Collapse All</button>
+      </div>
     </div>
   </header>
 
-  <!-- Interactive Controls -->
-  <section class="control-bar">
-    <div class="search-filter-group">
-      <input type="text" id="search-box" class="search-input" placeholder="Search parent messages and replies..." />
-      <select id="sender-filter" class="sender-select">
-        <option value="">All Senders</option>
-        ${senderOptions}
-      </select>
+  <!-- Main Chat Pane -->
+  <main class="chat-container">
+    <div class="chat-card-pane" id="chat-pane">
+      ${messagesHtml || '<div style="padding:48px;text-align:center;color:var(--text-muted);">No messages found in conversation.</div>'}
     </div>
-    <div class="expand-controls">
-      <button class="action-btn" id="expand-all-btn">Expand All Threads</button>
-      <button class="action-btn" id="collapse-all-btn">Collapse All Threads</button>
-    </div>
-  </section>
-
-  <!-- Feed -->
-  <main class="messages-feed" id="messages-feed">
-    ${messagesHtml || '<div class="empty-state">No messages exported.</div>'}
   </main>
 </div>
 
-<!-- Lightbox Modal -->
+<!-- Image Lightbox Modal -->
 <div class="lightbox-modal" id="lightbox" onclick="this.classList.remove('active')">
-  <img class="lightbox-img" id="lightbox-img" src="" alt="Enlarged preview" />
+  <img class="lightbox-img" id="lightbox-img" src="" alt="Enlarged screenshot" />
 </div>
 
 <script>
 // Standalone Interactive Controller
 (function() {
   const themeToggle = document.getElementById('theme-toggle');
-  const searchBox = document.getElementById('search-box');
+  const searchInput = document.getElementById('search-input');
   const senderFilter = document.getElementById('sender-filter');
   const expandAllBtn = document.getElementById('expand-all-btn');
   const collapseAllBtn = document.getElementById('collapse-all-btn');
@@ -763,9 +907,9 @@ body {
     themeToggle.textContent = isDark ? '🌙 Theme' : '☀️ Theme';
   });
 
-  // Individual Thread Toggle
+  // Individual Thread Card Expand/Collapse
   document.querySelectorAll('.thread-header').forEach(header => {
-    header.addEventListener('click', (e) => {
+    header.addEventListener('click', () => {
       const card = header.closest('.thread-card');
       card.classList.toggle('collapsed');
     });
@@ -773,28 +917,26 @@ body {
 
   // Expand / Collapse All
   expandAllBtn.addEventListener('click', () => {
-    document.querySelectorAll('.thread-card').forEach(card => card.classList.remove('collapsed'));
+    document.querySelectorAll('.thread-card').forEach(c => c.classList.remove('collapsed'));
   });
 
   collapseAllBtn.addEventListener('click', () => {
-    document.querySelectorAll('.thread-card').forEach(card => card.classList.add('collapsed'));
+    document.querySelectorAll('.thread-card').forEach(c => c.classList.add('collapsed'));
   });
 
-  // Search & Filter
+  // Search & Filtering
   function applyFilter() {
-    const query = (searchBox.value || '').toLowerCase().trim();
+    const query = (searchInput.value || '').toLowerCase().trim();
     const sender = (senderFilter.value || '').toLowerCase().trim();
 
     document.querySelectorAll('.parent-message-card').forEach(card => {
       const parentSender = (card.getAttribute('data-sender') || '').toLowerCase();
-      const parentText = (card.querySelector('.message-body')?.textContent || '').toLowerCase();
+      const parentText = (card.querySelector('.message-body-text')?.textContent || '').toLowerCase();
 
-      // Check replies
       let replyMatch = false;
-      const replies = card.querySelectorAll('.reply-row');
-      replies.forEach(reply => {
+      card.querySelectorAll('.reply-row').forEach(reply => {
         const replySender = (reply.getAttribute('data-sender') || '').toLowerCase();
-        const replyText = (reply.querySelector('.reply-body')?.textContent || '').toLowerCase();
+        const replyText = (reply.querySelector('.reply-body-text')?.textContent || '').toLowerCase();
 
         const matchSender = !sender || replySender === sender;
         const matchQuery = !query || replyText.includes(query) || replySender.includes(query);
@@ -815,17 +957,16 @@ body {
 
       card.style.display = isVisible ? '' : 'none';
 
-      // Auto expand thread if reply matches query
       if (replyMatch && (query || sender)) {
         card.querySelectorAll('.thread-card').forEach(tc => tc.classList.remove('collapsed'));
       }
     });
   }
 
-  searchBox.addEventListener('input', applyFilter);
+  searchInput.addEventListener('input', applyFilter);
   senderFilter.addEventListener('change', applyFilter);
 
-  // Lightbox
+  // Lightbox click handler
   window.openLightbox = function(url) {
     if (!url) return;
     lightboxImg.src = url;
@@ -838,14 +979,16 @@ body {
   }
 
   /**
-   * Renders a single parent message and all its associated independent threads.
+   * Renders a single parent message card with avatar, sender, timestamp,
+   * message body, media attachments, and separate independent threads.
    * @private
    */
   static _renderParentMessage(msg, index) {
     const senderName = msg.sender?.name || 'Google Chat User';
     const avatarUrl = msg.sender?.avatarUrl;
     const initial = (senderName[0] || 'U').toUpperCase();
-    const timestampStr = formatTimestamp(msg.timestamp);
+    const avatarColor = getAvatarColor(senderName);
+    const timeStr = formatTime(msg.timestamp);
     const textContent = msg.text || '';
     const reactionsHtml = this._renderReactions(msg.reactions);
     const attachmentsHtml = this._renderAttachments(msg.attachments);
@@ -856,28 +999,31 @@ body {
     if (threads.length > 0) {
       const threadsHtml = threads.map((thread, tIdx) => this._renderThread(thread, tIdx + 1, msg.id)).join('\n');
       threadsSectionHtml = `
-      <section class="threads-container">
+      <div class="threads-block-wrap">
         ${threadsHtml}
-      </section>`;
+      </div>`;
     }
 
     return `
     <article class="parent-message-card" id="msg-${escapeHtml(msg.id)}" data-sender="${escapeHtml(senderName)}">
-      <div class="message-header">
-        <div class="sender-info">
-          <div class="avatar">
+      <div class="message-main-layout">
+        <div class="avatar-col">
+          <div class="avatar-circle" style="background-color: ${avatarColor};">
             ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(senderName)}" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(initial)}'" />` : initial}
           </div>
-          <div class="sender-meta">
-            <span class="sender-name">${escapeHtml(senderName)}</span>
-            <span class="timestamp">${escapeHtml(timestampStr)}${msg.edited ? '<span class="edited-tag">(edited)</span>' : ''}</span>
+        </div>
+        <div class="message-content-col">
+          <div class="message-meta-header">
+            <span class="sender-display-name">${escapeHtml(senderName)}</span>
+            <span class="message-time-text">${escapeHtml(timeStr)}</span>
+            ${msg.edited ? '<span class="edited-indicator">(edited)</span>' : ''}
           </div>
+          <div class="message-body-text">${escapeHtml(textContent)}</div>
+          ${attachmentsHtml}
+          ${reactionsHtml}
+          ${threadsSectionHtml}
         </div>
       </div>
-      <div class="message-body">${escapeHtml(textContent)}</div>
-      ${attachmentsHtml}
-      ${reactionsHtml}
-      ${threadsSectionHtml}
     </article>`;
   }
 
@@ -895,14 +1041,14 @@ body {
 
     return `
     <div class="thread-card" id="${escapeHtml(threadId)}">
-      <div class="thread-header" title="Click to expand/collapse thread">
+      <div class="thread-header" title="Click to expand or collapse thread">
         <div class="thread-title-wrap">
           <span class="thread-badge">Thread ${threadNumber}</span>
           <span class="thread-title-text">${escapeHtml(threadTitle)}</span>
         </div>
         <div class="thread-meta-wrap">
-          <span class="reply-count-pill">${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}</span>
-          <span class="thread-toggle-arrow">▼</span>
+          <span class="reply-count-badge">${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}</span>
+          <span class="thread-chevron">▼</span>
         </div>
       </div>
       <div class="thread-replies-list">
@@ -919,71 +1065,70 @@ body {
     const senderName = reply.sender?.name || 'Google Chat User';
     const avatarUrl = reply.sender?.avatarUrl;
     const initial = (senderName[0] || 'U').toUpperCase();
-    const timestampStr = formatTimestamp(reply.timestamp);
+    const avatarColor = getAvatarColor(senderName);
+    const timeStr = formatTime(reply.timestamp);
     const textContent = reply.text || '';
     const reactionsHtml = this._renderReactions(reply.reactions);
     const attachmentsHtml = this._renderAttachments(reply.attachments);
 
     return `
     <div class="reply-row" id="reply-${escapeHtml(reply.id)}" data-sender="${escapeHtml(senderName)}">
-      <div class="reply-header">
-        <div class="reply-sender-info">
-          <div class="reply-avatar">
-            ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(senderName)}" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(initial)}'" />` : initial}
-          </div>
-          <span class="reply-sender-name">${escapeHtml(senderName)}</span>
-        </div>
-        <span class="timestamp">${escapeHtml(timestampStr)}${reply.edited ? '<span class="edited-tag">(edited)</span>' : ''}</span>
+      <div class="reply-avatar" style="background-color: ${avatarColor};">
+        ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(senderName)}" onerror="this.style.display='none';this.parentElement.textContent='${escapeHtml(initial)}'" />` : initial}
       </div>
-      <div class="reply-body">${escapeHtml(textContent)}</div>
-      ${attachmentsHtml}
-      ${reactionsHtml}
+      <div class="reply-content-col">
+        <div class="reply-meta">
+          <span class="reply-sender-name">${escapeHtml(senderName)}</span>
+          <span class="message-time-text">${escapeHtml(timeStr)}</span>
+          ${reply.edited ? '<span class="edited-indicator">(edited)</span>' : ''}
+        </div>
+        <div class="reply-body-text">${escapeHtml(textContent)}</div>
+        ${attachmentsHtml}
+        ${reactionsHtml}
+      </div>
     </div>`;
   }
 
   /**
-   * Renders reactions list
+   * Renders reaction chips
    * @private
    */
   static _renderReactions(reactions) {
     if (!reactions || reactions.length === 0) return '';
     const chips = reactions.map(r => `
-      <span class="reaction-chip" title="${escapeHtml((r.users || []).join(', '))}">
+      <span class="reaction-chip">
         <span>${escapeHtml(r.emoji)}</span>
         <span class="reaction-count">${r.count}</span>
       </span>
     `).join('');
-    return `<div class="reactions-list">${chips}</div>`;
+    return `<div class="reactions-row">${chips}</div>`;
   }
 
   /**
-   * Renders attachments
+   * Renders media attachments (screenshots, images, and document links)
    * @private
    */
   static _renderAttachments(attachments) {
     if (!attachments || attachments.length === 0) return '';
     const items = attachments.map(att => {
       const name = att.filename || att.name || 'Attachment';
-      const isImg = att.type === 'image' || /\.(jpe?g|png|gif|webp)$/i.test(name) || (att.previewUrl && !att.previewUrl.includes('drive'));
+      const isImg = att.type === 'image' || (att.previewUrl && (att.previewUrl.startsWith('data:image') || !att.previewUrl.includes('drive')));
       const previewUrl = att.previewUrl || att.url;
 
       if (isImg && previewUrl) {
         return `
-        <div class="attachment-card">
-          <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(name)}" class="attachment-thumb" onclick="openLightbox('${escapeHtml(previewUrl)}')" />
-          <span class="attachment-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-          <span class="attachment-type-badge">Image</span>
+        <div class="media-image-card" onclick="openLightbox('${escapeHtml(previewUrl)}')">
+          <img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(name)}" loading="lazy" />
         </div>`;
       }
 
       return `
-      <a href="${escapeHtml(att.url || '#')}" target="_blank" class="attachment-card" rel="noopener noreferrer">
-        <div style="font-size:24px;text-align:center;padding:10px 0;">📄</div>
-        <span class="attachment-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-        <span class="attachment-type-badge">${escapeHtml(att.type || 'Document')}</span>
+      <a href="${escapeHtml(att.url || '#')}" target="_blank" class="file-attachment-card" rel="noopener noreferrer">
+        <span class="file-icon">📄</span>
+        <span class="file-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
       </a>`;
     }).join('');
 
-    return `<div class="attachments-grid">${items}</div>`;
+    return `<div class="media-attachments-grid">${items}</div>`;
   }
 }
