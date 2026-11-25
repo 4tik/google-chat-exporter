@@ -13,8 +13,8 @@
 (function () {
   'use strict';
 
-  if (window.__GCE_CONTENT_ENGINE_V7__) return;
-  window.__GCE_CONTENT_ENGINE_V7__ = true;
+  if (window.__GCE_CONTENT_ENGINE_V8__) return;
+  window.__GCE_CONTENT_ENGINE_V8__ = true;
 
   const LOG = (...args) => console.log('[Google Chat Exporter]', ...args);
   const WARN = (...args) => console.warn('[Google Chat Exporter]', ...args);
@@ -467,7 +467,7 @@
       .replace(/^Only visible to you\s*/i, '')
       .replace(/[•·]\s*Edited.*/i, '')
       .trim();
-    const m = str.match(/^([A-Z][a-zA-Z\s.'-]+?)(?:,\s*|\s+)(?:(Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.?,?\s*)?\d{1,2}:\d{2}/i);
+    const m = str.match(/^([A-Z][a-zA-Z\s.'-]+?)(?:,\s*|\s+)(?:(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s*\d{0,2},?\s*)?\d{1,2}:\d{2}/i);
     if (m && isValidSenderString(cleanSenderString(m[1]))) {
       return cleanSenderString(m[1]);
     }
@@ -530,12 +530,14 @@
       'div.tMd3Re',
       'div.Zc1EHg',
       'div[data-message-text]',
-      'div.oUJrbe'
+      'div.oUJrbe',
+      'span[dir="auto"]'
     ];
 
     for (const sel of directBodySelectors) {
-      const bodyNode = row.querySelector(sel);
-      if (bodyNode) {
+      const nodes = row.querySelectorAll(sel);
+      for (const bodyNode of nodes) {
+        if (bodyNode.closest('button, [role="button"], [role="toolbar"], [aria-label*="reaction" i], header, .njhDLc, time')) continue;
         const text = sanitizeExtractedBody(bodyNode.innerText || bodyNode.textContent, senderName);
         if (text && text.length > 0) return text;
       }
@@ -554,15 +556,27 @@
     clone.querySelectorAll('[aria-label*="reaction" i], [aria-label*="reacted" i], div.Fwf5Ef, [data-emoji-id]').forEach(n => n.remove());
 
     // Remove sender names, headers, avatars, and timestamps
-    clone.querySelectorAll('.FvY9Uc, .Wq4GMc, [data-hovercard-id], [data-name], header, [role="heading"], .njhDLc, time, [data-timestamp], img').forEach(n => n.remove());
+    clone.querySelectorAll('.FvY9Uc, .Wq4GMc, [data-hovercard-id], header, .njhDLc, time, [data-timestamp], img').forEach(n => n.remove());
 
     const raw = clone.innerText || clone.textContent || '';
-    return sanitizeExtractedBody(raw, senderName);
+    const text = sanitizeExtractedBody(raw, senderName);
+    if (text && text.length > 0) return text;
+
+    // Fallback: sanitize full row text if clone was over-stripped
+    return sanitizeExtractedBody(row.innerText || row.textContent || '', senderName);
   }
 
   function sanitizeExtractedBody(raw, senderName) {
     if (!raw) return '';
     let str = raw.replace(/^Only visible to you\s*/i, '');
+
+    // Strip Google Chat quote accessibility labels and thread chips from body
+    str = str
+      .replace(/(?:Quoted)+Sent by\s*/gi, '')
+      .replace(/Quoted\s*/gi, '')
+      .replace(/End Quote press L to link back to original quote/gi, '')
+      .replace(/[,\s]*\d+\s+repl(?:y|ies)(?:[,\s]*Last Reply:[^]*)?$/i, '')
+      .replace(/[,\s]*Last Reply:[^]*$/i, '');
 
     if (senderName) {
       const escaped = senderName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -598,7 +612,9 @@
         if (/^Reply in thread$/i.test(line)) return false;
         if (/^\d+\s+repl(y|ies)/i.test(line)) return false;
         if (/^Message viewed by/i.test(line)) return false;
-        if (/^[,\s]*(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?[,\s]*\d{0,2},?[,\s]*\d{1,2}:\d{2}\s*([AP]M)?.*$/i.test(line)) return false;
+        if (/^End Quote press L to link/i.test(line)) return false;
+        // Only filter out lines that are strictly a timestamp (NO .*$ at end!)
+        if (/^[,\s]*(?:Yesterday|Today|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?[,\s]*\d{0,2},?[,\s]*\d{1,2}:\d{2}\s*(?:[AP]M)?\.?[,\s]*$/i.test(line)) return false;
         if (/^[,\s]*[•·]?\s*Edited[,\s]*$/i.test(line)) return false;
         return true;
       });
@@ -609,9 +625,14 @@
   function extractTimestamp(row) {
     const dataTs = row.getAttribute('data-timestamp') || row.querySelector('[data-timestamp]')?.getAttribute('data-timestamp');
     if (dataTs) {
-      const num = Number(dataTs);
-      if (!isNaN(num) && num > 1000000000) {
-        return new Date(num > 1e12 ? num : num * 1000).toISOString();
+      let num = Number(dataTs);
+      if (!isNaN(num) && num > 1e9) {
+        if (num > 1e14) num = Math.floor(num / 1000); // microseconds to ms
+        else if (num < 1e11) num = num * 1000; // seconds to ms
+        const d = new Date(num);
+        if (!isNaN(d.getTime()) && d.getFullYear() >= 2015 && d.getFullYear() <= 2035) {
+          return d.toISOString();
+        }
       }
     }
 
@@ -739,7 +760,7 @@
     return attachments;
   }
 
-  // ─── Upward Pagination to Absolute Beginning ──────────────────────────────
+  // ─── Upward Pagination to Absolute Beginning (Start of Chat) ─────────────
 
   async function paginateToAbsoluteBeginning(scrollContainer, messageAccumulator, seenThreadIds, seenReplyIds) {
     let iterations = 0;
@@ -752,14 +773,18 @@
       iterations++;
 
       scrollContainer.scrollTop = 0;
-      await sleep(320);
+      try {
+        scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+        scrollContainer.dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }));
+      } catch (_) {}
+      await sleep(350);
 
       harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer);
 
       const currentCount = messageAccumulator.size;
-      const progressPercent = Math.min(42, 10 + Math.round((iterations / maxIterations) * 32));
+      const progressPercent = Math.min(45, 10 + Math.round((iterations / maxIterations) * 35));
 
-      sendProgress('Retrieving older messages...', progressPercent, {
+      sendProgress('Retrieving entire history to start of chat...', progressPercent, {
         messages: currentCount
       });
 
@@ -769,12 +794,18 @@
       } else {
         if (scrollContainer.scrollTop === 0) {
           consecutiveTopStalls++;
-          scrollContainer.scrollTop = 60;
+          scrollContainer.scrollTop = 80;
+          try {
+            scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+          } catch (_) {}
           await sleep(150);
           scrollContainer.scrollTop = 0;
+          try {
+            scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+          } catch (_) {}
 
-          if (consecutiveTopStalls >= 5) {
-            LOG(`Reached top of conversation after ${iterations} iterations.`);
+          if (consecutiveTopStalls >= 6) {
+            LOG(`Reached start of conversation after ${iterations} iterations.`);
             break;
           }
         }
@@ -784,18 +815,31 @@
 
   async function sweepDownToBottom(scrollContainer, messageAccumulator, seenThreadIds, seenReplyIds) {
     const scrollHeight = scrollContainer.scrollHeight;
-    const step = Math.max(400, Math.floor(scrollContainer.clientHeight * 0.8));
+    const step = Math.max(350, Math.floor(scrollContainer.clientHeight * 0.75));
     let pos = 0;
 
     while (pos < scrollContainer.scrollHeight) {
       if (isCancelRequested) break;
       pos += step;
       scrollContainer.scrollTop = pos;
-      await sleep(120);
+      try {
+        scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+      } catch (_) {}
+      await sleep(160);
       harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer);
+
+      const progressPercent = Math.min(65, 45 + Math.round((pos / Math.max(1, scrollContainer.scrollHeight)) * 20));
+      sendProgress('Sweeping full conversation to end...', progressPercent, {
+        messages: messageAccumulator.size
+      });
     }
+
     scrollContainer.scrollTop = scrollContainer.scrollHeight;
-    await sleep(200);
+    try {
+      scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+    } catch (_) {}
+    await sleep(250);
+    harvestCurrentDOM(messageAccumulator, seenThreadIds, seenReplyIds, scrollContainer);
   }
 
   function isElementVisible(el) {
@@ -831,19 +875,38 @@
   }
 
   function getActiveMainContainer() {
-    const mainCandidates = Array.from(document.querySelectorAll('[role="main"], div[role="region"], div[data-view-type="STREAM"]'));
-    for (const main of mainCandidates) {
-      if (isSidebarElement(main)) continue;
-      if (main.closest('[aria-hidden="true"]')) continue;
-      if (main.offsetWidth > 250 && main.offsetHeight > 200) {
-        return main;
-      }
+    const main = document.querySelector('[role="main"]');
+    if (main && isElementVisible(main) && main.offsetWidth > 250 && main.offsetHeight > 200) {
+      return main;
     }
-    return document.querySelector('[role="main"]') || document.body;
+    const stream = document.querySelector('div[data-view-type="STREAM"]');
+    if (stream && isElementVisible(stream) && stream.offsetWidth > 250) {
+      return stream;
+    }
+    const regions = Array.from(document.querySelectorAll('div[role="region"]')).filter(r => {
+      return isElementVisible(r) && !isSidebarElement(r) && r.offsetWidth > 250 && r.offsetHeight > 200;
+    });
+    if (regions.length > 0) return regions[0];
+
+    return document.body;
   }
 
   function findFeedScrollContainer() {
     const activeMain = getActiveMainContainer();
+    if (!activeMain) return document.body;
+
+    const allDivs = [activeMain, ...Array.from(activeMain.querySelectorAll('div, [role="list"], [jsname]'))];
+    for (const c of allDivs) {
+      if (!isElementVisible(c)) continue;
+      if (c.scrollHeight > c.clientHeight + 40 && c.clientHeight >= 200) {
+        const style = window.getComputedStyle ? window.getComputedStyle(c) : null;
+        const overflowY = style ? style.overflowY : '';
+        if (overflowY === 'auto' || overflowY === 'scroll' || c.getAttribute('jsname') === 'xySENc' || c.getAttribute('role') === 'list') {
+          return c;
+        }
+      }
+    }
+
     const candidates = [
       activeMain.querySelector('[jsname="xySENc"]'),
       activeMain.querySelector('[role="list"]'),
@@ -860,17 +923,24 @@
 
   async function expandThreadsInDOM() {
     const activeMain = getActiveMainContainer();
-    const expandButtons = activeMain.querySelectorAll(
-      '[aria-label*="replies" i][role="button"], [aria-label*="unread" i][role="button"], button[data-reply-count]'
-    );
-    for (const btn of expandButtons) {
-      if (isCancelRequested) break;
+    const rawButtons = Array.from(activeMain.querySelectorAll(
+      'button, [role="button"], [data-reply-count]'
+    )).filter(btn => {
       const label = (btn.getAttribute('aria-label') || btn.textContent || '').trim();
-      if (/^(?:reply|reply in thread|quick reply)$/i.test(label)) continue;
+      if (/^(?:reply|reply in thread|quick reply)$/i.test(label)) return false;
+      return /\b\d+\s+repl(y|ies)\b/i.test(label) || btn.hasAttribute('data-reply-count');
+    });
+
+    const buttons = rawButtons.filter((btn, idx, arr) => {
+      return !arr.some((other, oIdx) => oIdx !== idx && other.contains(btn));
+    });
+
+    for (const btn of buttons) {
+      if (isCancelRequested) break;
       try {
-        if (btn.getAttribute('aria-expanded') === 'false') {
+        if (btn.getAttribute('aria-expanded') !== 'true') {
           btn.click();
-          await sleep(120);
+          await sleep(200);
         }
       } catch (_) {}
     }
@@ -913,7 +983,11 @@
     });
 
     candidates.forEach((row, idx) => {
-      const msgId = row.getAttribute('data-message-id') || row.getAttribute('data-id') || `msg_${idx}_${row.offsetTop || Date.now()}`;
+      const msgId = row.getAttribute('data-topic-id') ||
+                    row.getAttribute('data-message-id') ||
+                    row.getAttribute('data-id') ||
+                    row.id ||
+                    `msg_${idx}_${Math.round(row.offsetTop || 0)}`;
 
       let msg = messageAccumulator.get(msgId);
       if (!msg) {
@@ -950,82 +1024,160 @@
           isSelf,
           threads: []
         };
-        messageAccumulator.set(msgId, msg);
       }
 
       extractIndependentThreads(row, msgId, msg, seenThreadIds, seenReplyIds);
+
+      // Only record messages that actually contain text, attachments, or threads
+      const hasContent = (msg.text && msg.text.trim().length > 0) ||
+                         (msg.attachments && msg.attachments.length > 0) ||
+                         (msg.threads && msg.threads.length > 0);
+      if (hasContent) {
+        messageAccumulator.set(msgId, msg);
+      }
     });
   }
 
   function extractIndependentThreads(parentRow, parentMessageId, parentMsg, seenThreadIds, seenReplyIds) {
+    // 1. Explicit thread containers
     const threadContainers = Array.from(parentRow.querySelectorAll(
-      '[data-thread-container], [role="region"][aria-label*="Thread"], [data-topic-id]'
+      '[data-thread-container], [role="region"][aria-label*="Thread"], [data-thread-id]'
     )).filter(c => c !== parentRow);
-
-    const threadChips = Array.from(parentRow.querySelectorAll(
-      '[aria-label*="repl" i], [data-thread-id], button[data-reply-count]'
-    )).filter(btn => {
-      const label = (btn.getAttribute('aria-label') || btn.textContent || '').trim();
-      if (/^(?:reply|reply in thread|quick reply)$/i.test(label)) return false;
-      return /(\d+)\s+repl/i.test(label) || btn.hasAttribute('data-reply-count') || btn.hasAttribute('data-thread-id');
-    });
 
     if (threadContainers.length > 0) {
       threadContainers.forEach((tCont, idx) => {
-        const threadId = tCont.getAttribute('data-thread-id') || tCont.getAttribute('data-topic-id') || `thread_${parentMessageId}_${idx + 1}`;
+        const threadId = tCont.getAttribute('data-thread-id') || `thread_${parentMessageId}_${idx + 1}`;
         let threadObj = parentMsg.threads.find(t => t.id === threadId);
         if (!threadObj) {
           threadObj = {
             id: threadId,
             parentMessageId,
-            threadIndex: idx + 1,
-            title: `Thread ${idx + 1}`,
+            threadIndex: parentMsg.threads.length + 1,
+            title: `Thread ${parentMsg.threads.length + 1}`,
             replyCount: 0,
             replies: []
           };
-        }
-        extractRepliesIntoThread(tCont, threadId, parentMessageId, threadObj, seenReplyIds);
-        if (threadObj.replies.length > 0 && !parentMsg.threads.some(t => t.id === threadId)) {
           parentMsg.threads.push(threadObj);
         }
+        extractRepliesIntoThread(tCont, threadId, parentMessageId, threadObj, seenReplyIds);
       });
-    } else if (threadChips.length > 0) {
+    }
+
+    // 2. Child message rows inside topic or parent container
+    const isTopic = parentRow.hasAttribute('data-topic-id') || parentRow.classList.contains('topic-container') || Boolean(parentRow.querySelector('[data-topic-id]'));
+    const childRows = Array.from(parentRow.querySelectorAll('[data-message-id], [role="listitem"], .oUJrbe, .tMd3Re')).filter(el => {
+      return el !== parentRow && !el.closest('button, [role="button"], [role="toolbar"], [aria-label*="reaction" i]');
+    });
+
+    const distinctChildRows = childRows.filter((el, idx, arr) => {
+      return !arr.some((other, oIdx) => oIdx !== idx && other.contains(el));
+    });
+
+    if (distinctChildRows.length > 1) {
+      const threadId = parentRow.getAttribute('data-topic-id') || `thread_${parentMessageId}_1`;
+      let threadObj = parentMsg.threads.find(t => t.id === threadId);
+      if (!threadObj) {
+        threadObj = {
+          id: threadId,
+          parentMessageId,
+          threadIndex: parentMsg.threads.length + 1,
+          title: `Thread ${parentMsg.threads.length + 1}`,
+          replyCount: distinctChildRows.length - 1,
+          replies: []
+        };
+        parentMsg.threads.push(threadObj);
+      }
+
+      for (let i = 1; i < distinctChildRows.length; i++) {
+        const r = distinctChildRows[i];
+        const rId = r.getAttribute('data-message-id') || r.getAttribute('data-id') || `reply_${threadId}_${i}`;
+        if (seenReplyIds.has(rId)) continue;
+        seenReplyIds.add(rId);
+
+        let rSenderName = extractSenderName(r, '') || 'Participant';
+        const rSender = {
+          name: rSenderName,
+          avatarUrl: extractAvatarUrl(r) || null
+        };
+
+        const rText = extractCleanBodyText(r, rSenderName);
+        const rTimestamp = extractTimestamp(r);
+        const rAttachments = extractAttachments(r);
+        const rReactions = extractReactions(r);
+
+        if ((rText && rText.trim().length > 0) || (rAttachments && rAttachments.length > 0)) {
+          threadObj.replies.push({
+            id: rId,
+            threadId,
+            parentMessageId,
+            sender: rSender,
+            text: rText,
+            timestamp: rTimestamp,
+            attachments: rAttachments,
+            reactions: rReactions
+          });
+        }
+      }
+      threadObj.replyCount = Math.max(threadObj.replyCount, threadObj.replies.length);
+    }
+
+    // 3. Thread reply chips (e.g. "2 replies Yesterday 9:33 PM")
+    // 3. Thread reply chips (e.g. "1 reply, Last Reply: Thu")
+    const rawChips = Array.from(parentRow.querySelectorAll(
+      'button, [role="button"], [data-reply-count], [data-thread-id]'
+    )).filter(btn => {
+      const label = (btn.getAttribute('aria-label') || btn.textContent || '').trim();
+      if (/^(?:reply|reply in thread|quick reply)$/i.test(label)) return false;
+      return /\b\d+\s+repl(y|ies)\b/i.test(label) || btn.hasAttribute('data-reply-count') || btn.hasAttribute('data-thread-id');
+    });
+
+    const threadChips = rawChips.filter((btn, idx, arr) => {
+      return !arr.some((other, oIdx) => oIdx !== idx && other.contains(btn));
+    });
+
+    if (threadChips.length > 0) {
       threadChips.forEach((chip, idx) => {
-        const label = chip.getAttribute('aria-label') || chip.textContent || '';
+        const label = (chip.getAttribute('aria-label') || chip.textContent || '').trim();
         const m = label.match(/(\d+)\s+repl/i);
-        const count = m ? parseInt(m[1], 10) : (parseInt(chip.getAttribute('data-reply-count'), 10) || 0);
+        const count = m ? parseInt(m[1], 10) : (parseInt(chip.getAttribute('data-reply-count'), 10) || 1);
         if (count === 0) return;
 
         const threadId = chip.getAttribute('data-thread-id') || `thread_${parentMessageId}_${idx + 1}`;
-        let threadObj = parentMsg.threads.find(t => t.id === threadId);
-        if (!threadObj) {
-          threadObj = {
-            id: threadId,
-            parentMessageId,
-            threadIndex: idx + 1,
-            title: `Thread ${idx + 1}`,
-            replyCount: count,
-            replies: []
-          };
-          parentMsg.threads.push(threadObj);
-        }
+        if (parentMsg.threads.some(t => t.id === threadId)) return;
+
+        let threadObj = {
+          id: threadId,
+          parentMessageId,
+          threadIndex: parentMsg.threads.length + 1,
+          title: `Thread ${parentMsg.threads.length + 1}`,
+          replyCount: count,
+          replies: []
+        };
+
         extractRepliesIntoThread(parentRow, threadId, parentMessageId, threadObj, seenReplyIds);
+
+        const threadPanel = document.querySelector('div[role="region"][aria-label*="Thread" i], [data-panel-id], aside[aria-label*="Thread" i], .c-pane-thread');
+        if (threadPanel && threadObj.replies.length === 0) {
+          extractRepliesIntoThread(threadPanel, threadId, parentMessageId, threadObj, seenReplyIds);
+        }
+
+        parentMsg.threads.push(threadObj);
       });
     }
   }
 
   function extractRepliesIntoThread(container, threadId, parentMessageId, threadObj, seenReplyIds) {
     const replyRows = Array.from(container.querySelectorAll(
-      '[data-is-reply="true"], [role="listitem"], .thread-reply-row, [jsname="oLhsH"] div'
+      '[data-is-reply="true"], [role="listitem"], .thread-reply-row, [jsname="oLhsH"] div, .oUJrbe, .tMd3Re'
     )).filter(r => {
       const mid = r.getAttribute('data-message-id') || r.getAttribute('data-id');
-      return mid !== parentMessageId;
+      return mid !== parentMessageId && !r.closest('button, [role="button"], [role="toolbar"]');
     });
 
     let runningReplySender = '';
 
     replyRows.forEach((r, idx) => {
-      const rId = r.getAttribute('data-message-id') || `reply_${threadId}_${idx + 1}`;
+      const rId = r.getAttribute('data-message-id') || r.getAttribute('data-id') || `reply_${threadId}_${idx + 1}`;
       if (seenReplyIds.has(rId)) return;
       seenReplyIds.add(rId);
 
@@ -1046,16 +1198,18 @@
       const rAttachments = extractAttachments(r);
       const rReactions = extractReactions(r);
 
-      threadObj.replies.push({
-        id: rId,
-        threadId,
-        parentMessageId,
-        sender: rSender,
-        text: rText,
-        timestamp: rTimestamp,
-        attachments: rAttachments,
-        reactions: rReactions
-      });
+      if ((rText && rText.trim().length > 0) || (rAttachments && rAttachments.length > 0)) {
+        threadObj.replies.push({
+          id: rId,
+          threadId,
+          parentMessageId,
+          sender: rSender,
+          text: rText,
+          timestamp: rTimestamp,
+          attachments: rAttachments,
+          reactions: rReactions
+        });
+      }
     });
 
     threadObj.replyCount = Math.max(threadObj.replyCount, threadObj.replies.length);
@@ -1289,7 +1443,8 @@
       }
 
       let isContinuation = false;
-      if (!isNewDay && prevMsg && (prevMsg.sender?.name || '') === (msg.sender?.name || '')) {
+      const sName = msg.sender?.name || '';
+      if (!isNewDay && prevMsg && sName && sName !== 'Participant' && (prevMsg.sender?.name || '') === sName) {
         const timeDiff = Math.abs(new Date(msg.timestamp || 0) - new Date(prevMsg.timestamp || 0));
         if (timeDiff <= 3 * 60 * 1000 && (!prevMsg.threads || prevMsg.threads.length === 0) && (!msg.threads || msg.threads.length === 0)) {
           isContinuation = true;
@@ -1878,6 +2033,11 @@ body {
       </div>`;
     }
 
+    const textBubbleHtml = textContent && textContent.trim().length > 0 ? (
+      isSelf ? `<div class="gc-bubble-outgoing">${escapeHtml(textContent)}</div>`
+             : `<div class="gc-bubble-incoming">${escapeHtml(textContent)}</div>`
+    ) : '';
+
     if (isSelf) {
       // Outgoing message (Right-aligned speech bubble, dark charcoal, white text)
       return `
@@ -1886,7 +2046,7 @@ body {
         <div class="gc-msg-outgoing-meta">
           <span class="gc-timestamp">${escapeHtml(timeStr)}</span>
         </div>` : ''}
-        <div class="gc-bubble-outgoing">${escapeHtml(textContent)}</div>
+        ${textBubbleHtml}
         ${attachmentsHtml}
         ${reactionsHtml}
         ${threadsSectionHtml}
@@ -1909,7 +2069,7 @@ body {
           <span class="gc-timestamp">${escapeHtml(timeStr)}</span>
           ${msg.edited ? '<span class="gc-edited-tag">(edited)</span>' : ''}
         </div>` : ''}
-        <div class="gc-bubble-incoming">${escapeHtml(textContent)}</div>
+        ${textBubbleHtml}
         ${attachmentsHtml}
         ${reactionsHtml}
         ${threadsSectionHtml}

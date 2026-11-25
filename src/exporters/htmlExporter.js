@@ -150,7 +150,8 @@ export class HtmlExporter {
       }
 
       let isContinuation = false;
-      if (!isNewDay && prevMsg && (prevMsg.sender?.name || '') === (msg.sender?.name || '')) {
+      const sName = msg.sender?.name || '';
+      if (!isNewDay && prevMsg && sName && sName !== 'Participant' && (prevMsg.sender?.name || '') === sName) {
         const timeDiff = Math.abs(new Date(msg.timestamp || 0) - new Date(prevMsg.timestamp || 0));
         if (timeDiff <= 3 * 60 * 1000 && (!prevMsg.threads || prevMsg.threads.length === 0) && (!msg.threads || msg.threads.length === 0)) {
           isContinuation = true;
@@ -1066,6 +1067,11 @@ body {
       </div>`;
     }
 
+    const textBubbleHtml = textContent && textContent.trim().length > 0 ? (
+      isSelf ? `<div class="gc-bubble-outgoing">${escapeHtml(textContent)}</div>`
+        : `<div class="gc-bubble-incoming message-body-text">${escapeHtml(textContent)}</div>`
+    ) : '';
+
     if (isSelf) {
       return `
       <article class="parent-message-card" id="msg-${escapeHtml(msg.id)}" data-sender="You" data-is-self="true">
@@ -1073,7 +1079,7 @@ body {
         <div class="gc-msg-outgoing-meta">
           <span class="message-time-text gc-timestamp">${escapeHtml(timeStr)}</span>
         </div>` : ''}
-        <div class="gc-bubble-outgoing">${escapeHtml(textContent)}</div>
+        ${textBubbleHtml}
         ${attachmentsHtml}
         ${reactionsHtml}
         ${threadsSectionHtml}
@@ -1096,7 +1102,7 @@ body {
             <span class="message-time-text gc-timestamp">${escapeHtml(timeStr)}</span>
             ${msg.edited ? '<span class="edited-indicator gc-edited-tag">(edited)</span>' : ''}
           </div>` : ''}
-          <div class="gc-bubble-incoming message-body-text">${escapeHtml(textContent)}</div>
+          ${textBubbleHtml}
           ${attachmentsHtml}
           ${reactionsHtml}
           ${threadsSectionHtml}
@@ -1130,7 +1136,7 @@ body {
         </div>
       </div>
       <div class="thread-replies-list">
-        ${repliesHtml || '<div style="color:var(--text-muted);font-size:12px;">No replies found.</div>'}
+        ${repliesHtml || `<div style="color:var(--text-muted);font-size:12px;padding:6px 0;font-style:italic;">Thread contains ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}. (Click thread chip in Google Chat to view)</div>`}
       </div>
     </div>`;
   }
